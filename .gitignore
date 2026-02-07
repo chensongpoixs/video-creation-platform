@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# 数据库
+*.db
+*.sqlite
+
+# 视频文件
+videos/
+*.mp4
+*.avi
+*.mov
+
+# 模型文件
+models/
+*.pth
+*.pt
+*.ckpt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 日志
+*.log
+
+# 环境变量
+.env
+
+# Docker
+.dockerignore
