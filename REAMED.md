@@ -479,6 +479,20 @@ User 1---* Task 1---* Scene 1---1 VideoResource
 
 ### 3.3.2 用户与权限数据表设计
 
+
+
+| 字段名称             | 类型           | 允许空值 | 主键 | 默认值               | 说明                |
+| ---------------- | ------------ | ---- | -- | ----------------- | ----------------- |
+| id               | int(10)      | N    | Y  | AUTO_INCREMENT    | 用户唯一标识            |
+| username         | varchar(100) | N    |    |                   | 用户登录名，唯一          |
+| password_hash    | varchar(255) | N    |    |                   | 用户密码哈希值           |
+| role             | varchar(20)  | N    |    | user              | 用户角色：admin / user |
+| CreatedDate      | datetime     | Y    |    | CURRENT_TIMESTAMP | 创建时间              |
+| CreateBy         | int(10)      | Y    |    | NULL              | 创建者用户ID           |
+| LastModifiedDate | datetime     | Y    |    | NULL              | 最后修改时间            |
+| LastModifiedBy   | int(10)      | Y    |    | NULL              | 最后修改者用户ID         |
+
+
 ```sql
 CREATE TABLE Users (
     id SERIAL PRIMARY KEY,
@@ -488,9 +502,25 @@ CREATE TABLE Users (
 );
 ```
 
+
+
 ---
 
 ### 3.3.3 创作任务与状态机设计
+
+
+| 字段名称             | 类型          | 允许空值 | 主键 | 默认值               | 说明                                           |
+| ---------------- | ----------- | ---- | -- | ----------------- | -------------------------------------------- |
+| id               | int(10)     | N    | Y  | AUTO_INCREMENT    | 任务唯一标识                                       |
+| user_id          | int(10)     | N    |    |                   | 任务所属用户ID                                     |
+| prompt           | text        | Y    |    | NULL              | 用户输入的创作提示词                                   |
+| status           | varchar(20) | N    |    | pending           | 任务状态（pending / running / completed / failed） |
+| created_at       | datetime    | Y    |    | CURRENT_TIMESTAMP | 任务创建时间                                       |
+| finished_at      | datetime    | Y    |    | NULL              | 任务完成时间                                       |
+| CreateBy         | int(10)     | Y    |    | NULL              | 创建者用户ID                                      |
+| LastModifiedDate | datetime    | Y    |    | NULL              | 最后修改时间                                       |
+| LastModifiedBy   | int(10)     | Y    |    | NULL              | 最后修改者用户ID                                    |
+
 
 ```sql
 CREATE TABLE Tasks (
@@ -507,6 +537,21 @@ CREATE TABLE Tasks (
 
 ### 3.3.4 脚本结构与分镜参数表设计
 
+
+| 字段名称             | 类型       | 允许空值 | 主键 | 默认值               | 说明             |
+| ---------------- | -------- | ---- | -- | ----------------- | -------------- |
+| id               | int(10)  | N    | Y  | AUTO_INCREMENT    | 分镜唯一标识         |
+| task_id          | int(10)  | N    |    |                   | 所属创作任务ID       |
+| scene_number     | int(10)  | N    |    |                   | 分镜顺序编号         |
+| description      | text     | Y    |    | NULL              | 分镜内容描述         |
+| camera_settings  | json     | Y    |    | NULL              | 镜头参数配置（JSON格式） |
+| duration_sec     | int(10)  | Y    |    | NULL              | 分镜持续时间（秒）      |
+| CreatedDate      | datetime | Y    |    | CURRENT_TIMESTAMP | 创建时间           |
+| CreateBy         | int(10)  | Y    |    | NULL              | 创建者用户ID        |
+| LastModifiedDate | datetime | Y    |    | NULL              | 最后修改时间         |
+| LastModifiedBy   | int(10)  | Y    |    | NULL              | 最后修改者用户ID      |
+
+
 ```sql
 CREATE TABLE Scenes (
     id SERIAL PRIMARY KEY,
@@ -521,6 +566,18 @@ CREATE TABLE Scenes (
 ---
 
 ### 3.3.5 视频资源与元数据表设计
+
+
+| 字段名称       | 类型           | 允许空值 | 主键 | 默认值               | 说明                 |
+| ---------- | ------------ | ---- | -- | ----------------- | ------------------ |
+| id         | int(10)      | N    | Y  | AUTO_INCREMENT    | 视频资源唯一标识           |
+| scene_id   | int(10)      | N    |    |                   | 所属分镜ID             |
+| file_path  | varchar(255) | N    |    |                   | 视频文件存储路径           |
+| frame_rate | int(10)      | Y    |    | NULL              | 视频帧率               |
+| resolution | varchar(50)  | Y    |    | NULL              | 视频分辨率（如 1920x1080） |
+| created_at | datetime     | Y    |    | CURRENT_TIMESTAMP | 视频生成时间             |
+| CreateBy   | int(10)      | Y    |    | NULL              | 创建者用户ID            |
+
 
 ```sql
 CREATE TABLE VideoResources (
