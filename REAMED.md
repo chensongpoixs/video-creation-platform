@@ -1159,38 +1159,92 @@ CREATE TABLE VideoResources (
 
  
 
-# 第四章 系统关键模块实现
+# 第四章 系统实现
 
-## 4.1 开发环境与部署配置（新增）
+## 4.1 开发环境与部署配置
 
 ### 4.1.1 硬件环境与 CUDA 配置
+
+**硬件要求**：
 
 * GPU：支持 CUDA 的 NVIDIA GPU（推荐 RTX 3090/4090）
 * CUDA 版本：11.7+
 * cuDNN：8.3+
-* 显存优化：支持 FP16 半精度推理和 INT8 量化
+* 显存：建议 16GB 以上（支持 FP16 优化可降低至 12GB）
+* 内存：32GB 以上
+* 存储：SSD 2TB 以上
+
+**CUDA 环境检查**：
 
 ```bash
 # 检查 CUDA 是否可用
 python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+
+# 检查 CUDA 版本
+nvcc --version
+
+# 检查 GPU 信息
+nvidia-smi
+```
+
+**系统配置文件（config.py）**：
+
+```python
+# 显存优化配置
+MEMORY_CONFIG = {
+    "auto_optimize": True,  # 自动根据显存情况优化
+    "min_free_memory": 2.0,  # 最小空闲显存 (GB)
+    "enable_monitoring": True,  # 启用显存监控
+    "clear_cache_after_generation": True,  # 生成后清理缓存
+    "warn_threshold": 0.85,  # 显存使用警告阈值 (85%)
+    "force_fp16_threshold": 16.0,  # 显存小于此值强制 FP16 (GB)
+}
+
+# LLM 模型配置
+LLM_CONFIG = {
+    "model_name": "THUDM/chatglm3-6b",
+    "model_path": str(MODELS_DIR / "chatglm3-6b"),
+    "device": "cuda",
+    "use_fp16": True,  # 启用 FP16 半精度，显存减半
+    "use_int8": False,  # INT8 量化（更激进的优化）
+    "enable_memory_efficient": True,  # 启用内存优化
+}
+
+# 视频生成模型配置
+VIDEO_CONFIG = {
+    "model_name": "stabilityai/stable-video-diffusion-img2vid-xt",
+    "model_path": str(MODELS_DIR / "svd-xt"),
+    "device": "cuda",
+    "use_fp16": True,  # 启用 FP16 半精度
+    "enable_attention_slicing": True,  # 注意力切片，减少显存
+    "enable_vae_slicing": True,  # VAE 切片，减少显存
+    "enable_xformers": True,  # xFormers 加速
+}
 ```
 
 ### 4.1.2 软件依赖与 Docker 容器化部署
 
 **Python 依赖（requirements.txt）**：
 
-```
-fastapi
-uvicorn
-torch
-torchvision
-transformers
-diffusers
-opencv-python
-sqlalchemy
-pydantic
-faiss-cpu
-python-multipart
+```txt
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+sqlalchemy==2.0.23
+python-multipart==0.0.6
+torch==2.1.0
+transformers==4.35.0
+diffusers==0.24.0
+opencv-python==4.8.1.78
+moviepy==1.0.3
+pillow==10.1.0
+numpy==1.24.3
+xformers==0.0.22
+PyJWT==2.8.0
+bcrypt==4.1.1
+passlib[bcrypt]==1.7.4
+ffmpeg-python==0.2.0
+psutil==5.9.6
 ```
 
 **Dockerfile 示例**：
@@ -1199,7 +1253,7 @@ python-multipart
 FROM nvidia/cuda:11.7.1-cudnn8-runtime-ubuntu20.04
 
 # 安装 Python
-RUN apt-get update && apt-get install -y python3 python3-pip git
+RUN apt-get update && apt-get install -y python3 python3-pip git ffmpeg
 
 # 复制项目文件
 WORKDIR /app
@@ -1213,11 +1267,209 @@ RUN pip3 install -r requirements.txt
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
+**Docker Compose 配置**：
+
+```yaml
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./videos:/app/videos
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+```
+
+**启动命令**：
+
+```bash
+# 构建并启动容器
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
+
+# 停止服务
+docker-compose down
+```
+
 ---
 
-## 4.2 用户交互与任务提交模块实现
+## 4.2 用户认证与权限管理模块实现
 
-**前端 HTML/JS 示例**：
+### 4.2.1 密码加密与验证
+
+系统使用 bcrypt 算法进行密码加密，确保用户密码安全：
+
+```python
+from passlib.context import CryptContext
+import re
+
+# 密码加密上下文
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+class PasswordService:
+    """密码服务类"""
+    
+    @staticmethod
+    def hash_password(password: str) -> str:
+        """加密密码"""
+        return pwd_context.hash(password)
+    
+    @staticmethod
+    def verify_password(plain_password: str, hashed_password: str) -> bool:
+        """验证密码"""
+        return pwd_context.verify(plain_password, hashed_password)
+    
+    @staticmethod
+    def validate_password_strength(password: str) -> tuple[bool, str]:
+        """验证密码强度"""
+        if len(password) < 8:
+            return False, "密码长度至少 8 位"
+        
+        if not re.search(r'[A-Z]', password):
+            return False, "密码必须包含至少一个大写字母"
+        
+        if not re.search(r'[a-z]', password):
+            return False, "密码必须包含至少一个小写字母"
+        
+        if not re.search(r'\d', password):
+            return False, "密码必须包含至少一个数字"
+        
+        return True, ""
+```
+
+### 4.2.2 JWT Token 认证实现
+
+```python
+from utils.jwt_utils import JWTUtils
+
+class AuthService:
+    """认证服务类"""
+    
+    def login(self, username: str, password: str) -> Dict[str, Any]:
+        """用户登录"""
+        # 查找用户（支持用户名或邮箱登录）
+        user = self.user_repo.get_by_username(username)
+        if not user:
+            user = self.user_repo.get_by_email(username)
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="用户名或密码错误"
+            )
+        
+        # 验证密码
+        if not PasswordService.verify_password(password, user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="用户名或密码错误"
+            )
+        
+        # 更新最后登录时间
+        user.last_login = datetime.utcnow()
+        self.db.commit()
+        
+        # 生成 Token
+        access_token = JWTUtils.create_access_token(
+            user_id=user.id,
+            username=user.username,
+            email=user.email
+        )
+        
+        refresh_token = JWTUtils.create_refresh_token(user_id=user.id)
+        
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "expires_in": JWTUtils.get_token_expire_time()
+        }
+    
+    def refresh_token(self, refresh_token: str) -> Dict[str, Any]:
+        """刷新访问令牌"""
+        # 验证刷新令牌
+        payload = JWTUtils.verify_token(refresh_token, token_type="refresh")
+        user_id = int(payload.get("sub"))
+        
+        # 获取用户
+        user = self.user_repo.get(user_id)
+        if not user or not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="用户不存在或已被禁用"
+            )
+        
+        # 生成新的访问令牌
+        access_token = JWTUtils.create_access_token(
+            user_id=user.id,
+            username=user.username,
+            email=user.email
+        )
+        
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "expires_in": JWTUtils.get_token_expire_time()
+        }
+```
+
+### 4.2.3 用户注册与权限管理
+
+```python
+def register(self, username: str, email: str, password: str) -> User:
+    """用户注册"""
+    # 检查用户名是否存在
+    existing_user = self.user_repo.get_by_username(username)
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="用户名已存在"
+        )
+    
+    # 检查邮箱是否存在
+    existing_email = self.user_repo.get_by_email(email)
+    if existing_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="邮箱已被注册"
+        )
+    
+    # 加密密码
+    password_hash = PasswordService.hash_password(password)
+    
+    # 创建用户
+    user_data = {
+        "username": username,
+        "email": email,
+        "password_hash": password_hash,
+        "is_active": True,
+        "quota": 100,  # 默认配额
+        "used_quota": 0
+    }
+    
+    user = self.user_repo.create(user_data)
+    return user
+```
+
+## 4.3 任务提交与管理模块实现
+
+### 4.3.1 前端任务提交界面
 
 ```javascript
 // 表单提交
@@ -1260,7 +1512,7 @@ document.getElementById('videoForm').addEventListener('submit', async (e) => {
 });
 ```
 
-**后端任务提交（Python + FastAPI）**：
+### 4.3.2 后端任务接口实现
 
 ```python
 from fastapi import APIRouter, HTTPException, BackgroundTasks
@@ -1318,9 +1570,9 @@ async def get_task(task_id: str):
 
 ---
 
-## 4.3 智能脚本与分镜生成模块实现
+## 4.4 智能脚本与分镜生成模块实现
 
-### 4.3.1 LLM 接入与上下文管理实现
+### 4.4.1 LLM 接入与上下文管理实现
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -1346,7 +1598,7 @@ def parse_script_to_json(text: str) -> dict:
 
 ---
 
-### 4.3.2 结构化提示词（Prompt）优化实现
+### 4.4.2 结构化提示词（Prompt）优化实现
 
 * 将生成的脚本转换为视频生成模型可识别的 Prompt：
 
@@ -1364,7 +1616,7 @@ def build_scene_prompts(script_json: dict):
 
 ---
 
-### 4.3.3 分镜自动拆解算法实现
+### 4.4.3 分镜自动拆解算法实现
 
 * 可以根据关键词、句号或换行进行自动拆分；
 * 结合 RAG 检索历史素材，增强脚本多样性：
@@ -1380,9 +1632,9 @@ def auto_split_script(script_text):
 
 ---
 
-## 4.4 视频生成与推理模块实现
+## 4.5 视频生成与推理模块实现
 
-### 4.4.1 视频生成模型加载与初始化
+### 4.5.1 视频生成模型加载与初始化
 
 ```python
 from diffusers import DiffusionPipeline
@@ -1393,7 +1645,7 @@ video_model = DiffusionPipeline.from_pretrained("local_video_model").to("cuda").
 
 ---
 
-### 4.4.2 显存优化与推理加速实现
+### 4.5.2 显存优化与推理加速实现
 
 ```python
 def generate_video_from_script(script_json):
@@ -1417,14 +1669,151 @@ def save_frames_to_video(frames, path):
 
 ---
 
-### 4.4.3 视频一致性控制实现
+### 4.5.3 视频一致性控制实现
 
-* 可通过在模型生成时使用 `cross-frame attention` 或 `temporal smoothing`；
-* 简单实现：在前一帧生成结果基础上进行下一帧预测。
+视频一致性控制通过帧插值和时序平滑实现：
 
----
+```python
+class VideoProcessor:
+    @staticmethod
+    def interpolate_frames(frames: List, factor: int = 2) -> List:
+        """帧插值（增加帧数）"""
+        logger.info(f"执行帧插值，因子: {factor}")
+        
+        if len(frames) < 2:
+            return frames
+        
+        interpolated = []
+        for i in range(len(frames) - 1):
+            interpolated.append(frames[i])
+            
+            # 简单的线性插值
+            for j in range(1, factor):
+                alpha = j / factor
+                
+                # 转换为 numpy 数组进行插值
+                frame1 = np.array(frames[i], dtype=np.float32)
+                frame2 = np.array(frames[i + 1], dtype=np.float32)
+                
+                blended = (1 - alpha) * frame1 + alpha * frame2
+                blended = np.clip(blended, 0, 255).astype(np.uint8)
+                
+                interpolated.append(Image.fromarray(blended))
+        
+        interpolated.append(frames[-1])
+        
+        logger.info(f"帧插值完成: {len(frames)} -> {len(interpolated)} 帧")
+        return interpolated
+```
 
-## 4.5 视频拼接与后处理模块实现
+## 4.6 视频后处理模块实现
+
+### 4.6.1 视频滤镜处理
+
+系统支持多种滤镜效果：
+
+```python
+class VideoFilter:
+    """视频滤镜处理类"""
+    
+    @staticmethod
+    def adjust_brightness(frame: np.ndarray, factor: float = 1.0) -> np.ndarray:
+        """调整亮度"""
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
+        hsv[:, :, 2] = np.clip(hsv[:, :, 2] * factor, 0, 255)
+        return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+    
+    @staticmethod
+    def adjust_contrast(frame: np.ndarray, factor: float = 1.0) -> np.ndarray:
+        """调整对比度"""
+        return cv2.convertScaleAbs(frame, alpha=factor, beta=0)
+    
+    @staticmethod
+    def adjust_saturation(frame: np.ndarray, factor: float = 1.0) -> np.ndarray:
+        """调整饱和度"""
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
+        hsv[:, :, 1] = np.clip(hsv[:, :, 1] * factor, 0, 255)
+        return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+    
+    @staticmethod
+    def apply_vignette(frame: np.ndarray, strength: float = 0.5) -> np.ndarray:
+        """应用暗角效果"""
+        rows, cols = frame.shape[:2]
+        
+        # 创建径向渐变遮罩
+        X_resultant_kernel = cv2.getGaussianKernel(cols, cols / 2)
+        Y_resultant_kernel = cv2.getGaussianKernel(rows, rows / 2)
+        
+        kernel = Y_resultant_kernel * X_resultant_kernel.T
+        mask = kernel / kernel.max()
+        
+        # 应用强度
+        mask = 1 - (1 - mask) * strength
+        
+        # 应用遮罩
+        output = frame.copy()
+        for i in range(3):
+            output[:, :, i] = output[:, :, i] * mask
+        
+        return output.astype(np.uint8)
+    
+    @staticmethod
+    def apply_sepia(frame: np.ndarray) -> np.ndarray:
+        """应用复古棕褐色滤镜"""
+        kernel = np.array([[0.272, 0.534, 0.131],
+                          [0.349, 0.686, 0.168],
+                          [0.393, 0.769, 0.189]])
+        
+        sepia = cv2.transform(frame, kernel)
+        return np.clip(sepia, 0, 255).astype(np.uint8)
+```
+
+### 4.6.2 视频质量优化
+
+```python
+class VideoOptimizer:
+    """视频质量优化类"""
+    
+    @staticmethod
+    def denoise(frame: np.ndarray, strength: int = 10) -> np.ndarray:
+        """去噪处理"""
+        return cv2.fastNlMeansDenoisingColored(
+            frame, None, strength, strength, 7, 21
+        )
+    
+    @staticmethod
+    def color_correction(frame: np.ndarray) -> np.ndarray:
+        """自动色彩校正（白平衡）"""
+        # 转换到 LAB 色彩空间
+        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB).astype(np.float32)
+        
+        # 计算 A 和 B 通道的平均值
+        avg_a = np.average(lab[:, :, 1])
+        avg_b = np.average(lab[:, :, 2])
+        
+        # 调整 A 和 B 通道
+        lab[:, :, 1] = lab[:, :, 1] - ((avg_a - 128) * (lab[:, :, 0] / 255.0) * 1.1)
+        lab[:, :, 2] = lab[:, :, 2] - ((avg_b - 128) * (lab[:, :, 0] / 255.0) * 1.1)
+        
+        # 转换回 BGR
+        lab = np.clip(lab, 0, 255).astype(np.uint8)
+        return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    
+    @staticmethod
+    def enhance_contrast(frame: np.ndarray) -> np.ndarray:
+        """自适应对比度增强（CLAHE）"""
+        # 转换到 LAB 色彩空间
+        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+        
+        # 对 L 通道应用 CLAHE
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+        
+        # 转换回 BGR
+        return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+```
+
+### 4.6.3 视频拼接实现
 
 ```python
 def stitch_videos(video_paths, output_path="final_video.mp4"):
@@ -1464,39 +1853,133 @@ def add_subtitles(video_path, subtitles: list):
 
 ---
 
-## 4.6 任务调度与队列管理实现
+## 4.7 任务调度与队列管理实现
 
-* 使用 Python `queue.Queue` 或 `celery` 实现异步任务队列：
+系统使用 FastAPI 的 BackgroundTasks 实现异步任务处理：
 
 ```python
-from queue import Queue
-task_queue = Queue()
+from fastapi import BackgroundTasks
+from services.task_processor import process_video_task
 
-def schedule_task(task_id, prompt):
-    task_queue.put((task_id, prompt))
-
-def worker():
-    while True:
-        task_id, prompt = task_queue.get()
-        process_task(task_id, prompt)
-        task_queue.task_done()
+@router.post("/", response_model=TaskResponse)
+async def create_task(task: TaskCreate, background_tasks: BackgroundTasks):
+    """创建新的视频生成任务"""
+    task_id = str(uuid4())
+    
+    task_data = {
+        "task_id": task_id,
+        "status": "pending",
+        "prompt": task.prompt,
+        "result": None,
+        "created_at": datetime.now().isoformat(),
+        "error": None
+    }
+    
+    tasks_db[task_id] = task_data
+    
+    # 添加后台任务
+    background_tasks.add_task(process_video_task, task_id, task.prompt, tasks_db)
+    
+    return TaskResponse(**task_data)
 ```
 
-* 支持并发任务和顺序生成，保证系统稳定运行。
+**任务处理器实现**：
+
+```python
+def process_video_task(task_id: str, prompt: str, tasks_db: dict):
+    """
+    处理视频生成任务
+    
+    Args:
+        task_id: 任务ID
+        prompt: 用户输入的创作指令
+        tasks_db: 任务数据库引用
+    """
+    try:
+        logger.info(f"开始处理任务 {task_id}")
+        tasks_db[task_id]['status'] = 'processing'
+        
+        # 步骤1: 生成脚本和分镜
+        logger.info(f"任务 {task_id}: 生成脚本")
+        script = generate_script(prompt)
+        tasks_db[task_id]['script'] = script
+        
+        # 步骤2: 生成视频
+        logger.info(f"任务 {task_id}: 生成视频")
+        video_path = generate_video_from_script(script, task_id)
+        
+        # 步骤3: 更新任务状态
+        tasks_db[task_id]['status'] = 'completed'
+        tasks_db[task_id]['result'] = video_path
+        logger.info(f"任务 {task_id} 完成，视频路径: {video_path}")
+        
+    except Exception as e:
+        logger.error(f"任务 {task_id} 失败: {str(e)}")
+        tasks_db[task_id]['status'] = 'failed'
+        tasks_db[task_id]['error'] = str(e)
+```
+
+**任务状态查询**：
+
+```python
+@router.get("/{task_id}", response_model=TaskResponse)
+async def get_task(task_id: str):
+    """获取任务详情"""
+    if task_id not in tasks_db:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    
+    return TaskResponse(**tasks_db[task_id])
+
+@router.get("/", response_model=TaskList)
+async def list_tasks(skip: int = 0, limit: int = 10):
+    """获取任务列表"""
+    all_tasks = list(tasks_db.values())
+    total = len(all_tasks)
+    tasks = all_tasks[skip:skip + limit]
+    
+    return TaskList(
+        tasks=[TaskResponse(**t) for t in tasks],
+        total=total
+    )
+```
+
+**性能优化配置**：
+
+```python
+# 性能优化配置
+PERFORMANCE_CONFIG = {
+    # 并发配置
+    "max_workers": 4,               # 最大工作线程数
+    "thread_pool_size": 10,         # 线程池大小
+    "async_enabled": True,          # 启用异步处理
+    
+    # 缓存配置
+    "cache_enabled": True,          # 启用缓存
+    "cache_ttl": 3600,              # 缓存过期时间（秒）
+    "cache_max_size": 1000,         # 内存缓存最大数量
+    
+    # 资源限制
+    "max_memory_percent": 80,       # 最大内存使用率（%）
+    "max_cpu_percent": 80,          # 最大 CPU 使用率（%）
+    "max_concurrent_tasks": 10,     # 最大并发任务数
+}
+```
 
 ---
 
-## 4.7 本章小结
+## 4.8 本章小结
 
 本章详细实现了**多模态视频创作平台核心模块**：
 
-1. **用户交互与任务提交**：HTML/JS 前端 + FastAPI 后端；
-2. **智能脚本与分镜生成**：本地 LLM 调用 + Prompt 优化 + 分镜拆解；
-3. **视频生成与推理**：PyTorch + Diffusers 视频扩散模型 + 显存优化；
-4. **视频拼接与后处理**：OpenCV / moviepy 实现完整视频输出；
-5. **任务调度与队列管理**：异步处理多任务，保证系统稳定。
+1. **开发环境与部署配置**：CUDA 环境配置、Docker 容器化部署、显存优化配置；
+2. **用户认证与权限管理**：bcrypt 密码加密、JWT Token 认证、用户注册与权限控制；
+3. **任务提交与管理**：前端任务提交界面、后端 API 接口、任务状态管理；
+4. **智能脚本与分镜生成**：LLM 模型接入、提示词工程、分镜自动拆解算法；
+5. **视频生成与推理**：Stable Video Diffusion 模型加载、FP16 显存优化、视频帧生成；
+6. **视频后处理**：滤镜处理（亮度、对比度、饱和度、暗角、复古）、质量优化（去噪、色彩校正、对比度增强）、视频拼接；
+7. **任务调度与队列管理**：异步任务处理、任务状态查询、性能优化配置。
 
-> 系统已经形成**完整从文本输入到视频输出的闭环**，为第五章测试与性能分析提供可运行平台。
+系统已经形成**完整从用户注册、任务提交、脚本生成、视频生成到后处理的闭环**，为第五章测试与性能分析提供可运行平台。
 
 
 # 第五章 系统测试与分析
