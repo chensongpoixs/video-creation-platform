@@ -126,17 +126,215 @@
 * 对 GPU **显存优化**（如 `torch.cuda.amp` 或半精度 FP16）；
 * **推理服务封装**：可通过 FastAPI 提供本地调用接口。
 
-示例伪代码（Python）：
+**系统实际实现（Python + Stable Diffusion Video）**：
 
 ```python
-import torch
-from video_diffusion_model import VideoDiffusion
+class VideoModelLoader:
+    """视频生成模型加载器 - 支持 FP16 优化"""
+    
+    def __init__(self):
+        self.model = None
+        self.device = VIDEO_CONFIG["device"] if torch.cuda.is_available() else "cpu"
+        self.is_loaded = False
+        self.use_fp16 = VIDEO_CONFIG.get("use_fp16", True)
+    
+    def load_model(self):
+        """加载 Stable Diffusion Video 模型 - 支持 FP16 优化"""
+        try:
+            from diffusers import StableVideoDiffusionPipeline
+            
+            logger.info("加载 Stable Diffusion Video 模型...")
+            
+            load_kwargs = {}
+            
+            # FP16 优化 - 显存减半
+            if self.use_fp16 and self.device == "cuda":
+                logger.info("✅ 使用 FP16 半精度（显存减半）")
+                load_kwargs["torch_dtype"] = torch.float16
+                load_kwargs["variant"] = "fp16"
+            
+            self.model = StableVideoDiffusionPipeline.from_pretrained(
+                model_path,
+                **load_kwargs
+            )
+            
+            # 移动到 GPU
+            if self.device == "cuda":
+                self.model = self.model.to(self.device)
+                
+                # 启用内存优化
+                if VIDEO_CONFIG.get("enable_attention_slicing", True):
+                    self.model.enable_attention_slicing()
+                    logger.info("✅ 启用注意力切片（内存优化）")
+                
+                if VIDEO_CONFIG.get("enable_vae_slicing", True):
+                    self.model.enable_vae_slicing()
+                    logger.info("✅ 启用 VAE 切片（内存优化）")
+                
+                # xFormers 加速
+                if VIDEO_CONFIG.get("enable_xformers", True):
+                    try:
+                        self.model.enable_xformers_memory_efficient_attention()
+                        logger.info("✅ 启用 xFormers 加速")
+                    except:
+                        logger.warning("xFormers 不可用")
+            
+            self.is_loaded = True
+            return True
+            
+        except Exception as e:
+            logger.error(f"视频模型加载失败: {str(e)}")
+            return False
+    
+    def generate_video(self, prompt: str, image=None, **kwargs) -> list:
+        """生成视频帧"""
+        if not self.is_loaded:
+            raise RuntimeError("视频模型未加载")
+        
+        # 生成前清理缓存
+        if MEMORY_CONFIG.get("clear_cache_after_generation", True):
+            torch.cuda.empty_cache()
+        
+        gen_kwargs = {
+            "num_inference_steps": VIDEO_CONFIG.get("num_inference_steps", 25),
+            "guidance_scale": VIDEO_CONFIG.get("guidance_scale", 7.5),
+            "height": VIDEO_CONFIG.get("height", 576),
+            "width": VIDEO_CONFIG.get("width", 1024),
+            "num_frames": VIDEO_CONFIG.get("num_frames", 25),
+        }
+        gen_kwargs.update(kwargs)
+        
+        logger.info(f"生成视频，参数: {gen_kwargs}")
+        
+        # 调用模型生成
+        output = self.model(
+            image=image,
+            prompt=prompt,
+            **gen_kwargs
+        )
+        
+        frames = output.frames[0]
+        logger.info(f"✅ 视频生成完成，帧数: {len(frames)}")
+        
+        # 生成后清理缓存
+        torch.cuda.empty_cache()
+        
+        return frames
 
-model = VideoDiffusion.load_pretrained("local_model")
-model.to("cuda").eval()
+# 全局实例
+video_loader = VideoModelLoader()
+```
 
-prompt = "A sunny park with children playing"
-video_frames = model.generate(prompt, num_frames=32, resolution=(256, 256))
+**视频生成服务实现**：
+
+```python
+def generate_scene_video(scene: Dict, task_id: str) -> str:
+    """生成单个场景的视频片段"""
+    try:
+        from services.model_loader import video_loader
+        
+        scene_id = scene['scene_number']
+        output_path = os.path.join(VIDEO_OUTPUT_DIR, f"{task_id}_scene_{scene_id}.mp4")
+        
+        # 检查模型是否加载
+        if not video_loader.is_loaded:
+            logger.warning("视频模型未加载，使用备用方案")
+            return generate_scene_video_fallback(scene, task_id)
+        
+        # 优化提示词
+        from services.llm_service import optimize_prompt_for_video
+        prompt = optimize_prompt_for_video(scene['description'])
+        
+        # 生成占位符图像
+        image = VideoProcessor.generate_placeholder_image(
+            width=VIDEO_CONFIG.get("width", 1024),
+            height=VIDEO_CONFIG.get("height", 576)
+        )
+        
+        # 生成视频帧
+        logger.info("调用视频模型生成帧...")
+        frames = video_loader.generate_video(
+            prompt=prompt,
+            image=image,
+            num_frames=VIDEO_CONFIG.get("num_frames", 25)
+        )
+        
+        # 帧插值（可选）
+        if VIDEO_CONFIG.get("enable_interpolation", False):
+            frames = VideoProcessor.interpolate_frames(frames, factor=2)
+        
+        # 转换为视频文件
+        fps = VIDEO_CONFIG.get("fps", 6)
+        VideoProcessor.frames_to_video(frames, output_path, fps=fps)
+        
+        return output_path
+        
+    except Exception as e:
+        logger.error(f"场景视频生成失败: {str(e)}")
+        return generate_scene_video_fallback(scene, task_id)
+```
+
+**视频帧处理实现**：
+
+```python
+class VideoProcessor:
+    """视频处理器"""
+    
+    @staticmethod
+    def frames_to_video(frames: List, output_path: str, fps: int = 6) -> str:
+        """将帧列表转换为视频文件"""
+        logger.info(f"开始转换视频，帧数: {len(frames)}, FPS: {fps}")
+        
+        # 转换为 numpy 数组
+        frame_array = []
+        for frame in frames:
+            if isinstance(frame, Image.Image):
+                frame = np.array(frame)
+            
+            # 转换为 BGR（OpenCV 格式）
+            if len(frame.shape) == 3 and frame.shape[2] == 3:
+                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            
+            frame_array.append(frame)
+        
+        # 获取视频参数
+        height, width = frame_array[0].shape[:2]
+        
+        # 创建视频写入器
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        
+        # 写入帧
+        for frame in frame_array:
+            out.write(frame)
+        
+        out.release()
+        logger.info(f"✅ 视频转换完成: {output_path}")
+        return output_path
+    
+    @staticmethod
+    def interpolate_frames(frames: List, factor: int = 2) -> List:
+        """帧插值（增加帧数）"""
+        logger.info(f"执行帧插值，因子: {factor}")
+        
+        interpolated = []
+        for i in range(len(frames) - 1):
+            interpolated.append(frames[i])
+            
+            # 简单的线性插值
+            for j in range(1, factor):
+                alpha = j / factor
+                frame1 = np.array(frames[i], dtype=np.float32)
+                frame2 = np.array(frames[i + 1], dtype=np.float32)
+                
+                blended = (1 - alpha) * frame1 + alpha * frame2
+                blended = np.clip(blended, 0, 255).astype(np.uint8)
+                
+                interpolated.append(Image.fromarray(blended))
+        
+        interpolated.append(frames[-1])
+        logger.info(f"帧插值完成: {len(frames)} -> {len(interpolated)} 帧")
+        return interpolated
 ```
 
 ---
@@ -167,25 +365,152 @@ RAG（Retrieval-Augmented Generation）结合**知识检索与生成模型**，�
 
 在本系统中：
 
-1. 用户输入创作指令 → 系统检索历史脚本/素材库 → LLM 生成结构化脚本；
+1. 用户输入创作指令 → LLM 生成结构化脚本 → 视频生成模型推理；
 2. **Prompt Engineering**：设计模板，引导模型生成可直接用于视频生成的分镜表；
-3. **分镜结构示例**：
+3. **分镜结构示例**（JSON 格式）：
 
-```
-Scene 1:
-  - Description: A child flying a kite
-  - Camera: Wide shot, sunny
-  - Duration: 5s
-Scene 2:
-  - Description: Close-up of kite in the sky
-  - Camera: Zoom-in
-  - Duration: 3s
+```json
+{
+  "title": "视频标题",
+  "total_duration": 15,
+  "scenes": [
+    {
+      "scene_number": 1,
+      "description": "A child flying a kite in a sunny park",
+      "duration": 5,
+      "camera": "wide shot",
+      "action": "展示场景"
+    },
+    {
+      "scene_number": 2,
+      "description": "Close-up of kite in the sky",
+      "duration": 3,
+      "camera": "close up",
+      "action": "镜头拉近"
+    }
+  ]
+}
 ```
 
 **技术实现**：
 
-* Python + FAISS / Milvus 用于本地向量检索；
-* Prompt 模板定义 JSON / YAML 结构，方便与视频生成模块交互。
+系统中实际使用的提示词模板（Python）：
+
+```python
+# 提示词模板
+SCRIPT_GENERATION_PROMPT = """你是一个专业的视频脚本创作助手。请根据用户的创作指令，生成详细的视频脚本和分镜。
+
+用户指令：{user_prompt}
+
+请按照以下 JSON 格式输出：
+{{
+  "title": "视频标题",
+  "total_duration": 总时长（秒）,
+  "scenes": [
+    {{
+      "scene_number": 1,
+      "description": "场景描述（详细的视觉描述，包含环境、人物、动作等）",
+      "duration": 5,
+      "camera": "镜头类型（wide shot/close up/medium shot/aerial view）",
+      "action": "动作描述"
+    }}
+  ]
+}}
+
+要求：
+1. 每个场景描述要具体、生动，便于视频生成
+2. 场景之间要有连贯性和故事性
+3. 每个场景时长建议 3-8 秒
+4. 至少生成 3 个场景，最多 8 个场景
+5. 只输出 JSON 格式，不要其他内容
+6. 确保 JSON 格式正确，可以被解析
+"""
+
+def generate_script(prompt: str) -> Dict:
+    """使用 LLM 生成视频脚本"""
+    try:
+        from services.model_loader import llm_loader
+        
+        if llm_loader.is_loaded:
+            # 构造完整提示词
+            full_prompt = SCRIPT_GENERATION_PROMPT.format(user_prompt=prompt)
+            
+            # 调用 LLM 生成
+            response = llm_loader.generate(
+                full_prompt,
+                max_length=2048,
+                temperature=0.7
+            )
+            
+            # 解析 JSON
+            script = parse_llm_response(response)
+            
+            # 验证和修正
+            script = validate_and_fix_script(script)
+            
+            return script
+        else:
+            # 备用方案：简单分句
+            return generate_fallback_script(prompt)
+            
+    except Exception as e:
+        return generate_fallback_script(prompt)
+
+def optimize_prompt_for_video(scene_description: str) -> str:
+    """优化场景描述为视频生成模型的 Prompt"""
+    # 添加视觉质量关键词
+    quality_keywords = "high quality, cinematic, detailed, 4k, professional lighting"
+    
+    # 构造完整 Prompt
+    prompt = f"{scene_description}, {quality_keywords}"
+    
+    return prompt
+```
+
+**备用方案实现**：
+
+当 LLM 不可用时，系统使用智能分句算法生成脚本：
+
+```python
+def generate_fallback_script(prompt: str) -> Dict:
+    """生成备用脚本（当 LLM 失败时）"""
+    # 智能分句
+    sentences = re.split(r'[，。,.]', prompt)
+    sentences = [s.strip() for s in sentences if s.strip() and len(s.strip()) > 2]
+    
+    # 如果分句太少，使用整个提示词
+    if len(sentences) < 2:
+        sentences = [prompt]
+    
+    # 生成场景
+    scenes = []
+    camera_types = ["wide shot", "medium shot", "close up", "aerial view"]
+    
+    for i, sentence in enumerate(sentences[:6]):  # 最多6个场景
+        scenes.append({
+            "scene_number": i + 1,
+            "description": sentence,
+            "duration": 5,
+            "camera": camera_types[i % len(camera_types)],
+            "action": "展示场景内容"
+        })
+    
+    # 确保至少有3个场景
+    while len(scenes) < 3:
+        scenes.append({
+            "scene_number": len(scenes) + 1,
+            "description": f"{prompt} - 场景 {len(scenes) + 1}",
+            "duration": 5,
+            "camera": "wide shot",
+            "action": "展示场景"
+        })
+    
+    return {
+        "title": "自动生成视频",
+        "total_duration": len(scenes) * 5,
+        "scenes": scenes
+    }
+```
 
 ---
 
@@ -317,36 +642,150 @@ User Input --> LLM Script --> Scene Prompt --> Video Generation --> Video Stitch
 系统逻辑架构如下：
 
 ```
-+-------------------+
-|   用户交互模块     |  <-- HTML/JS
-+-------------------+
-          |
-          v
-+-------------------+
-| 任务调度与控制层  |  <-- Python
-+-------------------+
-   |           |
-   v           v
-+--------+   +-----------+
-| LLM    |   | Video     |  <-- Python/PyTorch
-| 推理服务|   |生成服务   |
-+--------+   +-----------+
-          |
-          v
-+-------------------+
-| 数据与任务管理层  |  <-- Python + SQLite / PostgreSQL
-+-------------------+
++-----------------------------------+
+|        用户交互层 (Frontend)        |
+|    HTML + JavaScript + CSS        |
+|    - 任务提交表单                   |
+|    - 视频预览播放器                 |
+|    - 任务状态轮询                   |
++-----------------------------------+
+              ↓ HTTP/REST API
++-----------------------------------+
+|      API 路由层 (FastAPI)          |
+|    - /api/auth (认证接口)          |
+|    - /api/tasks (任务管理)         |
+|    - /health (健康检查)            |
++-----------------------------------+
+              ↓
++-----------------------------------+
+|        中间件层 (Middleware)       |
+|    - auth_middleware (JWT认证)    |
+|    - performance_middleware       |
++-----------------------------------+
+              ↓
++-----------------------------------+
+|      业务逻辑层 (Services)         |
+|  ┌─────────────┬─────────────┐   |
+|  │ auth_service│task_processor│   |
+|  │ (用户认证)   │  (任务协调)   │   |
+|  └─────────────┴─────────────┘   |
+|  ┌─────────────┬─────────────┐   |
+|  │ llm_service │video_service │   |
+|  │ (脚本生成)   │  (视频生成)   │   |
+|  └─────────────┴─────────────┘   |
+|  ┌─────────────────────────────┐ |
+|  │ video_processor (帧处理)     │ |
+|  │ video_filter (滤镜)          │ |
+|  │ video_optimizer (优化)       │ |
+|  │ subtitle_system (字幕)       │ |
+|  │ audio_processor (音频)       │ |
+|  └─────────────────────────────┘ |
++-----------------------------------+
+              ↓
++-----------------------------------+
+|      模型推理层 (Model Loader)     |
+|  ┌─────────────┬─────────────┐   |
+|  │ LLMLoader   │ VideoLoader │   |
+|  │ (ChatGLM3)  │ (SVD-XT)    │   |
+|  │ - FP16优化  │ - FP16优化   │   |
+|  │ - 显存管理  │ - 注意力切片  │   |
+|  └─────────────┴─────────────┘   |
++-----------------------------------+
+              ↓
++-----------------------------------+
+|      数据持久层 (Repository)       |
+|  - user_repository (用户数据)     |
+|  - task_repository (任务数据)     |
+|  - video_repository (视频数据)    |
++-----------------------------------+
+              ↓
++-----------------------------------+
+|      数据库层 (SQLAlchemy)         |
+|         SQLite / PostgreSQL       |
++-----------------------------------+
 ```
 
-**技术栈**：
+**技术栈详细说明**：
 
-* **前端**：HTML + JS + Bootstrap/React（任务提交与视频预览）
-* **后端**：Python + FastAPI（RESTful API 服务）
-* **模型推理**：PyTorch（LLM & 视频生成），CUDA加速
-* **数据库**：SQLite/PostgreSQL
-* **容器化**：Docker + Docker Compose，保证私有化部署环境一致性
+| 层级 | 技术栈 | 说明 |
+|------|--------|------|
+| **前端** | HTML5 + JavaScript + Bootstrap | 轻量级前端，任务提交与视频预览 |
+| **API框架** | FastAPI 0.104.1 | 高性能异步 Web 框架 |
+| **认证** | JWT + PyJWT 2.8.0 + bcrypt | Token 认证 + 密码加密 |
+| **深度学习框架** | PyTorch 2.1.0 | 模型推理核心框架 |
+| **LLM模型** | Transformers 4.35.0 + ChatGLM3-6B | 脚本生成与分镜拆解 |
+| **视频生成** | Diffusers 0.24.0 + Stable Video Diffusion | 视频帧生成 |
+| **显存优化** | FP16 + xFormers 0.0.22 + Attention Slicing | 显存减半 + 加速推理 |
+| **视频处理** | OpenCV 4.8.1 + MoviePy 1.0.3 | 帧处理、拼接、后处理 |
+| **数据库** | SQLAlchemy 2.0.23 + SQLite | ORM + 轻量级数据库 |
+| **异步处理** | Uvicorn + asyncio | 异步任务处理 |
+| **容器化** | Docker + Docker Compose | 私有化部署 |
+| **GPU加速** | CUDA 11.7+ + cuDNN 8.3+ | GPU 推理加速 |
 
----
+**实际代码架构映射**：
+
+```python
+# 1. API 路由层 (backend/api/)
+from api.auth import router as auth_router      # 认证接口
+from api.tasks import router as tasks_router    # 任务接口
+
+app = FastAPI()
+app.include_router(auth_router)
+app.include_router(tasks_router)
+
+# 2. 中间件层 (backend/middleware/)
+from middleware.auth_middleware import get_current_active_user
+from middleware.performance_middleware import PerformanceMiddleware
+
+# 3. 业务逻辑层 (backend/services/)
+from services.auth_service import AuthService           # 用户认证
+from services.task_processor import process_video_task  # 任务协调
+from services.llm_service import generate_script        # 脚本生成
+from services.video_service import generate_video_from_script  # 视频生成
+from services.video_processor import VideoProcessor     # 帧处理
+from services.video_filter import VideoFilter           # 滤镜
+from services.video_optimizer import VideoOptimizer     # 优化
+from services.subtitle_system import SubtitleSystem     # 字幕
+from services.audio_processor import AudioProcessor     # 音频
+
+# 4. 模型推理层 (backend/services/model_loader.py)
+from services.model_loader import llm_loader, video_loader
+
+# 加载模型
+llm_loader.load_model()      # ChatGLM3-6B (FP16)
+video_loader.load_model()    # Stable Video Diffusion (FP16)
+
+# 5. 数据持久层 (backend/repositories/)
+from repositories.user_repository import UserRepository
+from repositories.task_repository import TaskRepository
+from repositories.video_repository import VideoRepository
+
+# 6. 配置管理 (backend/config.py)
+from config import (
+    LLM_CONFIG,              # LLM 配置
+    VIDEO_CONFIG,            # 视频生成配置
+    MEMORY_CONFIG,           # 显存优化配置
+    DATABASE_URL,            # 数据库配置
+    JWT_CONFIG,              # JWT 认证配置
+    VIDEO_POST_PROCESSING_CONFIG,  # 后处理配置
+    PERFORMANCE_CONFIG       # 性能配置
+)
+```
+
+**系统工作流程**：
+
+1. **用户提交任务** → Frontend 发送 POST /api/tasks
+2. **API 路由** → tasks_router 接收请求
+3. **中间件验证** → JWT 认证（可选）
+4. **任务入队** → BackgroundTasks 异步处理
+5. **脚本生成** → llm_service 调用 ChatGLM3 生成分镜
+6. **视频生成** → video_service 调用 SVD 生成视频帧
+7. **帧处理** → video_processor 转换为视频文件
+8. **后处理** → 滤镜、字幕、音频、优化
+9. **数据存储** → Repository 保存任务和视频信息
+10. **返回结果** → 前端轮询获取视频路径
+
+--- 
 
 ## 3.2 系统功能模块详细设计
 
@@ -360,27 +799,49 @@ User Input --> LLM Script --> Scene Prompt --> Video Generation --> Video Stitch
 
 **前端实现示例（HTML + JS）**：
 
-```html
-<form id="videoForm">
-  <textarea id="prompt" placeholder="输入创作指令..."></textarea>
-  <button type="submit">生成视频</button>
-</form>
-<div id="taskStatus"></div>
-<div id="videoPreview"></div>
-
-<script>
-document.getElementById("videoForm").onsubmit = async (e) => {
-  e.preventDefault();
-  const prompt = document.getElementById("prompt").value;
-  const response = await fetch("/api/tasks", {
-    method: "POST",
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({prompt})
-  });
-  const data = await response.json();
-  document.getElementById("taskStatus").innerText = "任务提交成功，ID: " + data.task_id;
+```javascript
+// 开始轮询任务状态
+function startPolling(taskId) {
+    if (pollInterval) {
+        clearInterval(pollInterval);
+    }
+    
+    pollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/api/tasks/${taskId}`);
+            if (!response.ok) {
+                throw new Error('查询任务失败');
+            }
+            
+            const data = await response.json();
+            updateStatus(data.status);
+            
+            if (data.status === 'completed') {
+                clearInterval(pollInterval);
+                showVideoPreview(data.result);
+                loadTaskList();
+            } else if (data.status === 'failed') {
+                clearInterval(pollInterval);
+                alert('视频生成失败');
+            }
+        } catch (error) {
+            console.error('轮询错误:', error);
+        }
+    }, 2000);
 }
-</script>
+
+// 显示视频预览
+function showVideoPreview(videoPath) {
+    const videoPreviewDiv = document.getElementById('videoPreview');
+    const videoPlayer = document.getElementById('videoPlayer');
+    const downloadBtn = document.getElementById('downloadBtn');
+    
+    videoPreviewDiv.classList.remove('d-none');
+    
+    // 设置视频源
+    videoPlayer.src = '/' + videoPath;
+    downloadBtn.href = '/' + videoPath;
+}
 ```
 
 ---
@@ -425,19 +886,59 @@ Thread(target=worker, daemon=True).start()
 示例接口：
 
 ```python
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from models.database import get_db
+from schemas.auth import RegisterSchema, LoginSchema, TokenSchema
+from services.auth_service import AuthService
 
-app = FastAPI()
+router = APIRouter(prefix="/api/auth", tags=["认证"])
 
-class ScriptRequest(BaseModel):
-    prompt: str
+@router.post("/register", response_model=dict, summary="用户注册")
+async def register(
+    data: RegisterSchema,
+    db: Session = Depends(get_db)
+):
+    """
+    用户注册
+    
+    - **username**: 用户名（3-50字符，只能包含字母、数字和下划线）
+    - **email**: 邮箱
+    - **password**: 密码（至少8位，包含大小写字母和数字）
+    """
+    auth_service = AuthService(db)
+    user = auth_service.register(
+        username=data.username,
+        email=data.email,
+        password=data.password
+    )
+    
+    return {
+        "message": "注册成功",
+        "user_id": user.id,
+        "username": user.username
+    }
 
-@app.post("/api/llm/generate_script")
-def generate_script(req: ScriptRequest):
-    # 调用本地 LLM 模型
-    script = llm.generate(req.prompt)
-    return {"script": script}
+@router.post("/login", response_model=TokenSchema, summary="用户登录")
+async def login(
+    data: LoginSchema,
+    db: Session = Depends(get_db)
+):
+    """
+    用户登录
+    
+    - **username**: 用户名或邮箱
+    - **password**: 密码
+    
+    返回访问令牌和刷新令牌
+    """
+    auth_service = AuthService(db)
+    tokens = auth_service.login(
+        username=data.username,
+        password=data.password
+    )
+    
+    return tokens
 ```
 
 #### 视频生成推理服务
@@ -449,11 +950,37 @@ def generate_script(req: ScriptRequest):
 示例接口：
 
 ```python
-@app.post("/api/video/generate")
-def generate_video(scene: dict):
-    frames = video_model.generate(scene['prompt'], num_frames=scene['duration']*30)
-    video_path = save_video(frames, scene['id'])
-    return {"video_path": video_path}
+@app.get("/health")
+def health_check():
+    """健康检查接口"""
+    from services.model_loader import llm_loader
+    
+    return {
+        "status": "ok",
+        "message": "服务运行正常",
+        "llm_loaded": llm_loader.is_loaded,
+        "device": llm_loader.device
+    }
+
+@app.get("/api/model/status")
+def model_status():
+    """获取模型状态"""
+    from services.model_loader import llm_loader, video_loader
+    import torch
+    
+    status = {
+        "llm_loaded": llm_loader.is_loaded,
+        "video_loaded": video_loader.is_loaded,
+        "device": llm_loader.device,
+        "cuda_available": torch.cuda.is_available(),
+    }
+    
+    if torch.cuda.is_available():
+        status["gpu_name"] = torch.cuda.get_device_name(0)
+        status["gpu_memory_allocated"] = f"{torch.cuda.memory_allocated() / 1024**3:.2f} GB"
+        status["gpu_memory_total"] = f"{torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB"
+    
+    return status
 ```
 
 ---
@@ -596,11 +1123,15 @@ CREATE TABLE VideoResources (
 
 ### 3.4.1 前后端交互 API 设计
 
-| 接口路径             | 方法   | 参数                 | 返回值            | 功能          |
-| ---------------- | ---- | ------------------ | -------------- | ----------- |
-| /api/tasks       | POST | prompt             | task_id        | 创建任务        |
-| /api/tasks/{id}  | GET  | task_id            | status, result | 查询任务状态及视频结果 |
-| /api/users/login | POST | username, password | token          | 用户登录        |
+| 接口路径                  | 方法   | 参数                                  | 返回值                                | 功能          |
+| --------------------- | ---- | ----------------------------------- | ---------------------------------- | ----------- |
+| /api/tasks            | POST | prompt                              | task_id, status, created_at        | 创建任务        |
+| /api/tasks/{task_id}  | GET  | task_id                             | status, result, error              | 查询任务状态及视频结果 |
+| /api/auth/register    | POST | username, email, password           | message, user_id, username         | 用户注册        |
+| /api/auth/login       | POST | username, password                  | access_token, refresh_token        | 用户登录        |
+| /api/auth/me          | GET  | Authorization: Bearer <token>       | user_id, username, email, quota    | 获取当前用户信息    |
+| /health               | GET  | -                                   | status, llm_loaded, device         | 健康检查        |
+| /api/model/status     | GET  | -                                   | llm_loaded, video_loaded, gpu_info | 获取模型状态      |
 
 ### 3.4.2 模型推理服务接口定义
 
@@ -688,76 +1219,101 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 **前端 HTML/JS 示例**：
 
-```html
-<form id="videoForm">
-  <textarea id="prompt" placeholder="输入创作指令..."></textarea>
-  <button type="submit">生成视频</button>
-</form>
-<div id="taskStatus"></div>
-<div id="videoPreview"></div>
-
-<script>
-document.getElementById("videoForm").onsubmit = async (e) => {
-  e.preventDefault();
-  const prompt = document.getElementById("prompt").value;
-  const response = await fetch("/api/tasks", {
-    method: "POST",
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({prompt})
-  });
-  const data = await response.json();
-  document.getElementById("taskStatus").innerText = "任务提交成功，ID: " + data.task_id;
-}
-</script>
+```javascript
+// 表单提交
+document.getElementById('videoForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const prompt = document.getElementById('prompt').value.trim();
+    if (!prompt) return;
+    
+    const submitBtn = document.getElementById('submitBtn');
+    submitBtn.disabled = true;
+    
+    try {
+        const response = await fetch('/api/tasks', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ prompt })
+        });
+        
+        if (!response.ok) {
+            throw new Error('任务提交失败');
+        }
+        
+        const data = await response.json();
+        currentTaskId = data.task_id;
+        
+        // 显示任务状态
+        showTaskStatus(data.task_id, data.status);
+        
+        // 开始轮询任务状态
+        startPolling(data.task_id);
+        
+    } catch (error) {
+        alert('错误: ' + error.message);
+    } finally {
+        submitBtn.disabled = false;
+    }
+});
 ```
 
 **后端任务提交（Python + FastAPI）**：
 
 ```python
-from fastapi import FastAPI
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
+from typing import Optional
 from uuid import uuid4
-from queue import Queue
-from threading import Thread
+from datetime import datetime
 
-app = FastAPI()
-task_queue = Queue()
+router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
-class TaskRequest(BaseModel):
+# 任务存储（生产环境应使用数据库）
+tasks_db = {}
+
+class TaskCreate(BaseModel):
     prompt: str
-
-tasks = {}  # 存储任务状态与结果
-
-def process_task(task_id, prompt):
-    # 调用 LLM 生成脚本
-    from llm_service import generate_script
-    script = generate_script(prompt)
     
-    # 调用视频生成
-    from video_service import generate_video_from_script
-    video_path = generate_video_from_script(script)
-    
-    tasks[task_id]['status'] = 'completed'
-    tasks[task_id]['result'] = video_path
+class TaskResponse(BaseModel):
+    task_id: str
+    status: str
+    prompt: str
+    result: Optional[str] = None
+    created_at: str
+    error: Optional[str] = None
 
-def worker():
-    while True:
-        task_id, prompt = task_queue.get()
-        process_task(task_id, prompt)
-        task_queue.task_done()
-
-Thread(target=worker, daemon=True).start()
-
-@app.post("/api/tasks")
-def create_task(req: TaskRequest):
+@router.post("/", response_model=TaskResponse)
+async def create_task(task: TaskCreate, background_tasks: BackgroundTasks):
+    """创建新的视频生成任务"""
     task_id = str(uuid4())
-    tasks[task_id] = {'status': 'pending', 'result': None}
-    task_queue.put((task_id, req.prompt))
-    return {"task_id": task_id}
+    
+    task_data = {
+        "task_id": task_id,
+        "status": "pending",
+        "prompt": task.prompt,
+        "result": None,
+        "created_at": datetime.now().isoformat(),
+        "error": None
+    }
+    
+    tasks_db[task_id] = task_data
+    
+    # 添加后台任务
+    from services.task_processor import process_video_task
+    background_tasks.add_task(process_video_task, task_id, task.prompt, tasks_db)
+    
+    return TaskResponse(**task_data)
 
-@app.get("/api/tasks/{task_id}")
-def get_task(task_id: str):
-    return tasks.get(task_id, {"status": "not_found"})
+@router.get("/{task_id}", response_model=TaskResponse)
+async def get_task(task_id: str):
+    """获取任务详情"""
+    if task_id not in tasks_db:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    
+    return TaskResponse(**tasks_db[task_id])
 ```
 
 ---
