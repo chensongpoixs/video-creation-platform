@@ -4,6 +4,13 @@
 import os
 from pathlib import Path
 
+# ============================================================
+# Hugging Face 镜像配置（国内用户使用 hf-mirror.com 加速下载）
+# 设置环境变量后，transformers / diffusers / huggingface_hub 自动使用镜像
+# ============================================================
+HF_MIRROR = os.getenv("HF_MIRROR", "https://hf-mirror.com")
+os.environ.setdefault("HF_ENDPOINT", HF_MIRROR)
+
 # 项目根目录
 BASE_DIR = Path(__file__).resolve().parent
 

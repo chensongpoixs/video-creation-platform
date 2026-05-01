@@ -5,6 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
+# Backend: install dependencies (China mirror)
+pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
 # Backend: start development server (from backend/)
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
@@ -12,9 +16,16 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 python scripts/init_database.py
 
 # Frontend: start Vue dev server (from frontend/)
-npm run dev            # hot-reload at localhost:5173, proxies API to 8000
-npm run build          # production build to frontend/dist/
+npm run dev            # hot-reload, port auto-detected, proxies API to 8000
+npm run build          # production build to frontend/dist/ (includes public/config.js)
 npm run preview        # preview production build
+
+# Download models (China mirror default: hf-mirror.com)
+python scripts/download_model.py --source hf
+HF_MIRROR="https://hf-mirror.com" python scripts/download_model.py  # explicit mirror
+
+# Custom backend URL for dev proxy
+VITE_BACKEND_URL=http://192.168.1.100:8000 npm run dev
 
 # Run all tests
 pytest tests/ -v
@@ -105,7 +116,7 @@ Connection URL: `sqlite:///./video_platform.db` (configured in `config.py`). ORM
 
 ### Configuration
 
-All config in `backend/config.py` as module-level dicts: `LLM_CONFIG`, `VIDEO_CONFIG`, `VIDEO_PROCESSING_CONFIG`, `MEMORY_CONFIG`, `JWT_CONFIG`, `VIDEO_POST_PROCESSING_CONFIG`, `PERFORMANCE_CONFIG`. JWT secret key from `JWT_SECRET_KEY` env var.
+All config in `backend/config.py` as module-level dicts: `LLM_CONFIG`, `VIDEO_CONFIG`, `VIDEO_PROCESSING_CONFIG`, `MEMORY_CONFIG`, `JWT_CONFIG`, `VIDEO_POST_PROCESSING_CONFIG`, `PERFORMANCE_CONFIG`. JWT secret key from `JWT_SECRET_KEY` env var. HF mirror defaults to `https://hf-mirror.com`, override via `HF_MIRROR` env var.
 
 ### Key dependencies
 

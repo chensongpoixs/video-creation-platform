@@ -6,6 +6,19 @@ declare module '*.vue' {
   export default component
 }
 
+// 全局应用配置类型（public/config.js）
+interface AppConfig {
+  apiBaseURL: string
+  timeout: number
+  backendPort: number
+}
+
+declare global {
+  interface Window {
+    __APP_CONFIG__?: AppConfig
+  }
+}
+
 declare module 'element-plus/dist/locale/zh-cn.mjs' {
   const locale: any
   export default locale

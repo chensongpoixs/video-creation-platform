@@ -12,6 +12,8 @@ services:
       - ./videos:/app/videos
     environment:
       - CUDA_VISIBLE_DEVICES=0
+      - HF_MIRROR=${HF_MIRROR:-https://hf-mirror.com}
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
     deploy:
       resources:
         reservations:

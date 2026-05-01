@@ -50,7 +50,7 @@ class LLMModelLoader:
             model_path = LLM_CONFIG["model_path"]
             
             if not os.path.exists(model_path) and LLM_CONFIG.get("auto_download", False):
-                logger.info(f"本地模型不存在，从 Hugging Face 下载...")
+                logger.info(f"本地模型不存在，从 Hugging Face 下载（镜像: {os.environ.get('HF_ENDPOINT', 'hf-mirror.com')}）...")
                 model_path = LLM_CONFIG["model_name"]
             elif not os.path.exists(model_path):
                 logger.error(f"模型路径不存在: {model_path}")
@@ -214,7 +214,7 @@ class VideoModelLoader:
             model_path = VIDEO_CONFIG["model_path"]
             
             if not os.path.exists(model_path) and VIDEO_CONFIG.get("auto_download", False):
-                logger.info(f"本地模型不存在，从 Hugging Face 下载...")
+                logger.info(f"本地模型不存在，从 Hugging Face 下载（镜像: {os.environ.get('HF_ENDPOINT', 'hf-mirror.com')}）...")
                 model_path = VIDEO_CONFIG["model_name"]
             elif not os.path.exists(model_path):
                 logger.warning(f"模型路径不存在: {model_path}")

@@ -2,10 +2,16 @@
 """
 模型下载脚本
 支持从 Hugging Face 或 ModelScope 下载模型
+国内用户自动使用 hf-mirror.com 加速，也可通过 HF_MIRROR 环境变量指定其他镜像
 """
 import os
 import sys
 import argparse
+
+# 设置 Hugging Face 镜像（国内加速）
+HF_MIRROR = os.getenv("HF_MIRROR", "https://hf-mirror.com")
+os.environ.setdefault("HF_ENDPOINT", HF_MIRROR)
+print(f"Hugging Face 镜像: {os.environ['HF_ENDPOINT']}")
 
 def download_from_huggingface(model_name: str, output_dir: str):
     """从 Hugging Face 下载模型"""
