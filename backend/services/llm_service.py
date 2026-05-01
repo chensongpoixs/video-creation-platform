@@ -55,26 +55,35 @@ def generate_script(prompt: str) -> Dict:
             from services.model_loader import llm_loader
 
             if llm_loader.is_loaded:
-                # 构造完整提示词
-                full_prompt = SCRIPT_GENERATION_PROMPT.format(user_prompt=prompt)
+                # CPU 推理控制：默认情况下 CPU 跳过 LLM（太慢），设置 allow_cpu_inference=True 可强制使用
+                from config import LLM_CONFIG as _cfg
+                if llm_loader.device == "cpu" and not _cfg.get("allow_cpu_inference", False):
+                    logger.warning(
+                        "LLM 模型在 CPU 上，allow_cpu_inference=False，跳过 LLM 推理。"
+                        "如需 LLM 推理: 1) 安装 CUDA 版 PyTorch + 改 device='cuda'，"
+                        "或 2) 改 config.py 中 allow_cpu_inference=True（很慢，10-30 分钟）"
+                    )
+                else:
+                    # 构造完整提示词
+                    full_prompt = SCRIPT_GENERATION_PROMPT.format(user_prompt=prompt)
 
-                logger.info(f"调用 LLM 推理（设备: {llm_loader.device}）...")
-                response = llm_loader.generate(
-                    full_prompt,
-                    max_length=2048,
-                    temperature=0.7
-                )
+                    logger.info(f"调用 LLM 推理（设备: {llm_loader.device}）...")
+                    response = llm_loader.generate(
+                        full_prompt,
+                        max_length=2048,
+                        temperature=0.7
+                    )
 
-                logger.info(f"LLM 原始输出: {response[:200]}...")
+                    logger.info(f"LLM 原始输出: {response[:200]}...")
 
-                # 解析 JSON
-                script = parse_llm_response(response)
+                    # 解析 JSON
+                    script = parse_llm_response(response)
 
-                # 验证和修正
-                script = validate_and_fix_script(script)
+                    # 验证和修正
+                    script = validate_and_fix_script(script)
 
-                logger.info(f"✅ 脚本生成成功（LLM），共 {len(script['scenes'])} 个场景")
-                return script
+                    logger.info(f"✅ 脚本生成成功（LLM），共 {len(script['scenes'])} 个场景")
+                    return script
             else:
                 logger.warning("LLM 模型未加载，使用备用方案")
 

@@ -1,6 +1,7 @@
 """
 任务管理API路由
 """
+import os
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Query
 from pydantic import BaseModel
 from typing import Optional, List
@@ -13,8 +14,17 @@ from models.task import TaskStatus
 from repositories.task_repository import TaskRepository
 from middleware.auth_middleware import get_current_active_user
 from models.user import User
+from config import VIDEO_OUTPUT_DIR
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+
+def _video_url(file_path: Optional[str]) -> Optional[str]:
+    """将文件系统路径转为前端可访问的 URL (/videos/xxx.mp4)"""
+    if not file_path:
+        return None
+    filename = os.path.basename(file_path)
+    return f"/videos/{filename}"
 
 
 class TaskCreate(BaseModel):
@@ -77,7 +87,7 @@ async def create_task(
         task_id=db_task.task_id,
         status=db_task.status,
         prompt=db_task.prompt,
-        result=db_task.video_path,
+        result=_video_url(db_task.video_path),
         created_at=db_task.created_at.isoformat() if db_task.created_at else datetime.now().isoformat(),
         error=db_task.error_message,
         progress=db_task.progress,
@@ -110,7 +120,7 @@ async def get_task(
         task_id=task.task_id,
         status=task.status,
         prompt=task.prompt or "",
-        result=task.video_path,
+        result=_video_url(task.video_path),
         created_at=task.created_at.isoformat() if task.created_at else "",
         error=task.error_message,
         progress=task.progress,
@@ -147,7 +157,7 @@ async def list_tasks(
             task_id=t.task_id,
             status=t.status,
             prompt=t.prompt or "",
-            result=t.video_path,
+            result=_video_url(t.video_path),
             created_at=t.created_at.isoformat() if t.created_at else "",
             error=t.error_message,
             progress=t.progress,

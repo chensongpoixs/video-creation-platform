@@ -41,7 +41,7 @@
         <!-- Video Player -->
         <div v-if="task.status === 'completed' && task.result" class="detail-card">
           <h2 class="section-title">生成结果</h2>
-          <VideoPlayer :src="'/' + task.result" :task-id="task.task_id" />
+          <VideoPlayer :src="task.result" :task-id="task.task_id" />
         </div>
 
         <!-- Processing Status -->

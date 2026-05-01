@@ -27,6 +27,7 @@ LLM_CONFIG = {
     "model_name": "THUDM/chatglm3-6b",
     "model_path": str(MODELS_DIR / "chatglm3-6b"),
     "device": "cpu",           # "cuda"(GPU) 或 "cpu"，默认 cuda
+    "allow_cpu_inference": False,  # CPU 下是否走 LLM 推理（6B 模型 CPU 推理 10-30min，默认跳过）
     "use_fp16": True,           # 启用 FP16 半精度，显存减半
     "use_int8": False,          # INT8 量化（更激进的优化）
     "max_length": 2048,

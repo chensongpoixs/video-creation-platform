@@ -112,46 +112,140 @@ def generate_scene_video(scene: Dict, task_id: str) -> str:
         # 使用备用方案
         return generate_scene_video_fallback(scene, task_id)
 
+def _hsv_to_bgr(h: float, s: float, v: float) -> tuple:
+    """HSV → BGR 颜色转换，用于生成好看的渐变色"""
+    import colorsys
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    return (int(b * 255), int(g * 255), int(r * 255))  # OpenCV 使用 BGR
+
+
+def _wrap_text(text: str, max_chars: int = 55) -> list:
+    """简单按字符换行"""
+    if len(text) <= max_chars:
+        return [text]
+    lines = []
+    while len(text) > max_chars:
+        # 优先在空格处断行
+        split_at = text.rfind(' ', 0, max_chars)
+        if split_at == -1:
+            split_at = max_chars
+        lines.append(text[:split_at].strip())
+        text = text[split_at:].strip()
+    if text:
+        lines.append(text)
+    return lines
+
+
 def generate_scene_video_fallback(scene: Dict, task_id: str) -> str:
     """
     生成场景视频的备用方案（当模型不可用时）
+
+    生成渐变色背景 + 动画标题 + 场景描述 + 进度条的专业演示视频，
+    不再使用随机纯色块。
     """
-    logger.info(f"使用备用方案生成场景 {scene['scene_number']}")
-    
     scene_id = scene['scene_number']
-    duration = scene['duration']
+    duration = scene.get('duration', 5)
     fps = VIDEO_CONFIG.get("fps", 6)
     width = VIDEO_CONFIG.get("width", 1024)
     height = VIDEO_CONFIG.get("height", 576)
-    
+
     output_path = os.path.join(VIDEO_OUTPUT_DIR, f"{task_id}_scene_{scene_id}.mp4")
-    
-    # 创建输出目录
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
-    # 创建视频写入器
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-    
-    # 生成随机颜色的帧
-    color = np.random.randint(0, 255, 3).tolist()
+
+    # 黄金比例旋转选择色相，不同场景颜色不同且协调
+    hue = ((scene_id - 1) * 0.6180339) % 1.0
+
+    # 按优先级尝试编码器：avc1(H.264) → mp4v(MPEG-4)
+    out = None
+    codec_used = None
+    for codec in ['avc1', 'mp4v']:
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        w = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        if w.isOpened():
+            out = w
+            codec_used = codec
+            break
+        w.release()
+    if out is None:
+        raise RuntimeError("无法创建视频文件：没有可用的编码器")
+    logger.info(f"场景 {scene_id} 视频编码器: {codec_used}")
+
     total_frames = duration * fps
-    
+    description = scene.get('description', f'场景 {scene_id}')
+    camera = scene.get('camera', 'wide shot')
+
+    # 预计算文字换行
+    desc_lines = _wrap_text(description, 55)
+
     for i in range(total_frames):
-        frame = np.full((height, width, 3), color, dtype=np.uint8)
-        
-        # 添加场景描述文字
-        text = f"Scene {scene_id}: {scene['description'][:40]}"
-        cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 
-                   0.7, (255, 255, 255), 2, cv2.LINE_AA)
-        
-        # 添加进度信息
-        progress_text = f"Frame {i+1}/{total_frames}"
-        cv2.putText(frame, progress_text, (10, height-20), cv2.FONT_HERSHEY_SIMPLEX,
-                   0.5, (255, 255, 255), 1, cv2.LINE_AA)
-        
+        t = i / max(total_frames - 1, 1)  # 0.0 → 1.0
+
+        # — 渐变色背景：从上到下由深变浅 —
+        top_color = _hsv_to_bgr(hue, 0.35, 0.25)    # 深色
+        bot_color = _hsv_to_bgr(hue, 0.20, 0.45)    # 浅色
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        for y in range(height):
+            alpha = y / height
+            b = int(top_color[0] + (bot_color[0] - top_color[0]) * alpha)
+            g = int(top_color[1] + (bot_color[1] - top_color[1]) * alpha)
+            r = int(top_color[2] + (bot_color[2] - top_color[2]) * alpha)
+            frame[y, :] = (b, g, r)
+
+        # — 顶部装饰线 —
+        line_y = int(height * 0.12)
+        cv2.line(frame, (width // 4, line_y), (width * 3 // 4, line_y),
+                 (255, 255, 255), 1, cv2.LINE_AA)
+
+        # — 场景编号：淡入动画 —
+        fade_in = min(1.0, t * 4.0)  # 前 1/4 时间淡入
+        title = f"SCENE {scene_id}"
+        (tw, th), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_DUPLEX, 1.5, 3)
+        tx = (width - tw) // 2
+        ty = int(height * 0.32)
+        # 阴影
+        cv2.putText(frame, title, (tx + 2, ty + 2), cv2.FONT_HERSHEY_DUPLEX, 1.5,
+                    (0, 0, 0), 3, cv2.LINE_AA)
+        # 主体
+        title_alpha = int(255 * fade_in)
+        cv2.putText(frame, title, (tx, ty), cv2.FONT_HERSHEY_DUPLEX, 1.5,
+                    (title_alpha, title_alpha, title_alpha), 3, cv2.LINE_AA)
+
+        # — 场景描述 —
+        line_h = 32
+        start_y = int(height * 0.45)
+        for j, line in enumerate(desc_lines):
+            (lw, _), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+            lx = (width - lw) // 2
+            ly = start_y + j * line_h
+            cv2.putText(frame, line, (lx, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                        (220, 220, 220), 2, cv2.LINE_AA)
+
+        # — 镜头类型 —
+        camera_text = f"[ {camera.upper()} ]"
+        (cw, _), _ = cv2.getTextSize(camera_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        cv2.putText(frame, camera_text, ((width - cw) // 2, start_y + len(desc_lines) * line_h + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (160, 160, 160), 1, cv2.LINE_AA)
+
+        # — 进度条 —
+        bar_w = int(width * 0.7)
+        bar_h = 6
+        bar_x = (width - bar_w) // 2
+        bar_y = height - 55
+        # 外框
+        cv2.rectangle(frame, (bar_x - 1, bar_y - 1),
+                      (bar_x + bar_w + 1, bar_y + bar_h + 1), (80, 80, 80), 1)
+        # 填充
+        fill_w = int(bar_w * t)
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h),
+                      (255, 255, 255), -1)
+
+        # — 帧计数 —
+        counter = f"Generating... frame {i + 1}/{total_frames}"
+        cv2.putText(frame, counter, (bar_x, bar_y - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (160, 160, 160), 1, cv2.LINE_AA)
+
         out.write(frame)
-    
+
     out.release()
     logger.info(f"✅ 备用视频生成完成: {output_path}")
     return output_path
@@ -183,9 +277,20 @@ def stitch_videos(video_paths: List[str], task_id: str) -> str:
     
     logger.info(f"视频参数: {width}x{height}, {fps} FPS")
     
-    # 创建输出视频
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    # 创建输出视频（按优先级尝试编码器）
+    out = None
+    codec_used = None
+    for codec in ['avc1', 'mp4v']:
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        w = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        if w.isOpened():
+            out = w
+            codec_used = codec
+            break
+        w.release()
+    if out is None:
+        raise RuntimeError("无法拼接视频：没有可用的编码器")
+    logger.info(f"拼接视频编码器: {codec_used}")
     
     # 逐个读取并写入视频片段
     for i, video_path in enumerate(video_paths):

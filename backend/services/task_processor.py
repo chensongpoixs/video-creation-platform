@@ -133,6 +133,15 @@ def process_video_task(
 
         # 阶段5: 标记任务完成 (100%)
         logger.info(f"任务 {task_id}: 标记完成")
+
+        # 验证视频文件
+        import os
+        if os.path.exists(video_path):
+            size_kb = os.path.getsize(video_path) / 1024
+            logger.info(f"任务 {task_id} 视频文件: {video_path} ({size_kb:.1f} KB)")
+        else:
+            logger.error(f"任务 {task_id} 视频文件不存在: {video_path}")
+
         _db_complete_task(task_id, video_path)
 
         logger.info(f"任务 {task_id} 完成，视频路径: {video_path}")
