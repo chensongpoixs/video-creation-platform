@@ -76,12 +76,12 @@ MEMORY_CONFIG = {
     "force_fp16_threshold": 16.0,  # 显存小于此值强制 FP16 (GB)
 }
 
-# 数据库配置
-DATABASE_URL = "sqlite:///./video_platform.db"
+# 数据库配置（使用绝对路径，确保从任意目录启动都指向同一文件）
+DATABASE_URL = f"sqlite:///{BASE_DIR / 'video_platform.db'}"
 
 # API 配置
 API_HOST = "0.0.0.0"
-API_PORT = 8000
+API_PORT = 8010
 
 # 任务配置
 MAX_CONCURRENT_TASKS = 3

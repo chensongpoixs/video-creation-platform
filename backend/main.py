@@ -22,6 +22,13 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
 
     try:
+        from models.database import init_db
+
+        # 初始化数据库表
+        logger.info("初始化数据库...")
+        init_db()
+        logger.info("数据库初始化完成")
+
         from services.model_loader import llm_loader, video_loader
 
         # 加载 LLM 模型

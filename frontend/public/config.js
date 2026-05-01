@@ -9,7 +9,7 @@
  *
  * 生产环境（npm run build 后部署）：
  *   - 将 apiBaseURL 修改为后端实际地址
- *   - 例如: 'http://192.168.1.100:8000' 或 'https://api.example.com'
+ *   - 例如: 'http://192.168.1.100:8010' 或 'https://api.example.com'
  */
 window.__APP_CONFIG__ = {
   /**
@@ -27,5 +27,5 @@ window.__APP_CONFIG__ = {
   /**
    * 后端服务端口（供运维参考，代码不直接使用）
    */
-  backendPort: 8000,
+  backendPort: 8010,
 }

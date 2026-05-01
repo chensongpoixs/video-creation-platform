@@ -28,18 +28,25 @@ async def register(
 ):
     """
     用户注册
-    
+
     - **username**: 用户名（3-50字符，只能包含字母、数字和下划线）
     - **email**: 邮箱
     - **password**: 密码（至少8位，包含大小写字母和数字）
     """
+    print("=" * 70)
+    print("[注册接口] 收到请求")
+    print(f"  username: {data.username}")
+    print(f"  email: {data.email}")
+    print(f"  password: {'*' * len(data.password)} (长度={len(data.password)})")
+    print("=" * 70)
+
     auth_service = AuthService(db)
     user = auth_service.register(
         username=data.username,
         email=data.email,
         password=data.password
     )
-    
+
     return {
         "message": "注册成功",
         "user_id": user.id,
@@ -54,18 +61,24 @@ async def login(
 ):
     """
     用户登录
-    
+
     - **username**: 用户名或邮箱
     - **password**: 密码
-    
+
     返回访问令牌和刷新令牌
     """
+    print("=" * 70)
+    print("[登录接口] 收到请求")
+    print(f"  username: {data.username}")
+    print(f"  password: {'*' * len(data.password)} (长度={len(data.password)})")
+    print("=" * 70)
+
     auth_service = AuthService(db)
     tokens = auth_service.login(
         username=data.username,
         password=data.password
     )
-    
+
     return tokens
 
 

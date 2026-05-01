@@ -23,6 +23,15 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
+      // 登录/注册/刷新接口自身的 401 不触发跳转，由调用方处理
+      const url = error.config?.url || ''
+      const isAuthEndpoint = url.includes('/api/auth/login') ||
+                             url.includes('/api/auth/register') ||
+                             url.includes('/api/auth/refresh')
+      if (isAuthEndpoint) {
+        return Promise.reject(error)
+      }
+
       // Try refresh token
       const refreshToken = localStorage.getItem('refresh_token')
       if (refreshToken && !error.config._retry) {

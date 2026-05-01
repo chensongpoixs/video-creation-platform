@@ -3,8 +3,8 @@ import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
 // 后端地址配置（开发环境 Vite proxy 目标）
-// 可通过环境变量 VITE_BACKEND_URL 覆盖，默认为 http://localhost:8000
-const BACKEND_URL = process.env.VITE_BACKEND_URL || 'http://localhost:8000'
+// 可通过环境变量 VITE_BACKEND_URL 覆盖，默认为 http://localhost:8010
+const BACKEND_URL = process.env.VITE_BACKEND_URL || 'http://localhost:8010'
 
 export default defineConfig({
   plugins: [vue()],

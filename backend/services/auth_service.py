@@ -22,37 +22,31 @@ class AuthService:
     def register(self, username: str, email: str, password: str) -> User:
         """
         用户注册
-        
-        Args:
-            username: 用户名
-            email: 邮箱
-            password: 密码
-            
-        Returns:
-            创建的用户对象
-            
-        Raises:
-            HTTPException: 用户名或邮箱已存在
         """
+        print(f"[注册服务] 开始注册: username={username}, email={email}")
+
         # 检查用户名是否存在
         existing_user = self.user_repo.get_by_username(username)
         if existing_user:
+            print(f"[注册服务] ❌ 用户名已存在: {username}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="用户名已存在"
             )
-        
+
         # 检查邮箱是否存在
         existing_email = self.user_repo.get_by_email(email)
         if existing_email:
+            print(f"[注册服务] ❌ 邮箱已被注册: {email}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="邮箱已被注册"
             )
-        
+
         # 加密密码
         password_hash = PasswordService.hash_password(password)
-        
+        print(f"[注册服务] 密码哈希: {password_hash[:30]}... (长度={len(password_hash)})")
+
         # 创建用户
         user_data = {
             "username": username,
@@ -62,54 +56,64 @@ class AuthService:
             "quota": 100,
             "used_quota": 0
         }
-        
-        user = self.user_repo.create(user_data)
+
+        user = self.user_repo.create(**user_data)
+        print(f"[注册服务] ✅ 用户创建成功: id={user.id}, username={user.username}, is_active={user.is_active}")
         return user
     
     def login(self, username: str, password: str) -> Dict[str, Any]:
         """
         用户登录
-        
-        Args:
-            username: 用户名或邮箱
-            password: 密码
-            
-        Returns:
-            包含 Token 的字典
-            
-        Raises:
-            HTTPException: 用户不存在或密码错误
         """
+        print(f"[登录服务] 开始登录: input={username}")
+
         # 查找用户（支持用户名或邮箱登录）
         user = self.user_repo.get_by_username(username)
         if not user:
+            print(f"[登录服务] 用户名未匹配到，尝试邮箱查询...")
             user = self.user_repo.get_by_email(username)
-        
+
         if not user:
+            print(f"[登录服务] ❌ 用户不存在: {username}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="用户名或密码错误"
             )
-        
+
+        print(f"[登录服务] 查到用户: id={user.id}, username={user.username}, is_active={user.is_active}")
+        print(f"[登录服务] DB中password_hash: {user.password_hash[:30] if user.password_hash else 'None'}...")
+
         # 检查用户是否激活
         if not user.is_active:
+            print(f"[登录服务] ❌ 用户已被禁用")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="用户已被禁用"
             )
-        
+
         # 验证密码
         if not user.password_hash:
+            print(f"[登录服务] ❌ 用户无密码哈希")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="用户未设置密码，请使用其他方式登录"
             )
-        
-        if not PasswordService.verify_password(password, user.password_hash):
+
+        verify_result = PasswordService.verify_password(password, user.password_hash)
+        print(f"[登录服务] 密码验证结果: {verify_result}")
+
+        if not verify_result:
+            print(f"[登录服务] ❌ 密码不匹配")
+            # 额外调试：用相同输入的密码重新哈希看是否一致
+            rehash_test = PasswordService.hash_password(password)
+            print(f"[登录服务] 调试: 重新hash输入密码 = {rehash_test[:30]}...")
+            print(f"[登录服务] 调试: DB存储的hash    = {user.password_hash[:30]}...")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="用户名或密码错误"
             )
+
+        print(f"[登录服务] ✅ 密码验证通过")
         
         # 更新最后登录时间
         user.last_login = datetime.utcnow()

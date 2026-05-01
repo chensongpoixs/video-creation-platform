@@ -197,16 +197,16 @@ python scripts/download_model.py --source ms
 
 ```bash
 # 开发模式（热重载）
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --host 0.0.0.0 --port 8010 --reload
 
 # 或直接运行
 python main.py
 ```
 
 服务启动后访问：
-- **API 文档**：http://localhost:8000/docs
-- **健康检查**：http://localhost:8000/health
-- **模型状态**：http://localhost:8000/api/model/status
+- **API 文档**：http://localhost:8010/docs
+- **健康检查**：http://localhost:8010/health
+- **模型状态**：http://localhost:8010/api/model/status
 
 ### 7. 安装并启动前端（开发模式）
 
@@ -216,7 +216,7 @@ cd frontend
 # 安装依赖
 npm install
 
-# 启动开发服务器（热重载，API 自动代理到 8000 端口）
+# 启动开发服务器（热重载，API 自动代理到 8010 端口）
 npm run dev
 ```
 
@@ -230,16 +230,16 @@ npm run dev
 // frontend/public/config.js
 window.__APP_CONFIG__ = {
   apiBaseURL: '/',          // 开发环境保持 '/'
-                            // 生产环境改为 'http://your-server:8000'
+                            // 生产环境改为 'http://your-server:8010'
   timeout: 30000,           // 请求超时时间（毫秒）
-  backendPort: 8000,        // 后端端口（供参考）
+  backendPort: 8010,        // 后端端口（供参考）
 }
 ```
 
 开发环境下也可通过环境变量指定 Vite proxy 目标：
 
 ```bash
-VITE_BACKEND_URL=http://192.168.1.100:8000 npm run dev
+VITE_BACKEND_URL=http://192.168.1.100:8010 npm run dev
 ```
 
 ### 9. 生产部署
@@ -250,10 +250,10 @@ cd frontend && npm run build
 
 # 修改 dist/config.js 中的后端地址（如需要）
 # 启动后端（会自动服务前端静态文件）
-cd ../backend && uvicorn main:app --host 0.0.0.0 --port 8000
+cd ../backend && uvicorn main:app --host 0.0.0.0 --port 8010
 ```
 
-访问 http://localhost:8000 即可使用完整应用。
+访问 http://localhost:8010 即可使用完整应用。
 
 ---
 
@@ -325,7 +325,7 @@ pytest tests/test_stress.py -v -s
 pytest tests/ --cov=backend -v
 
 # Locust 压力测试
-locust -f tests/locustfile.py --host=http://localhost:8000
+locust -f tests/locustfile.py --host=http://localhost:8010
 
 # 前端类型检查
 cd frontend && npx vue-tsc --noEmit

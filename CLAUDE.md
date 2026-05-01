@@ -10,13 +10,13 @@ pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # Backend: start development server (from backend/)
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --host 0.0.0.0 --port 8010 --reload
 
 # Backend: initialize/reset the SQLite database
 python scripts/init_database.py
 
 # Frontend: start Vue dev server (from frontend/)
-npm run dev            # hot-reload, port auto-detected, proxies API to 8000
+npm run dev            # hot-reload, port auto-detected, proxies API to 8010
 npm run build          # production build to frontend/dist/ (includes public/config.js)
 npm run preview        # preview production build
 
@@ -25,7 +25,7 @@ python scripts/download_model.py --source hf
 HF_MIRROR="https://hf-mirror.com" python scripts/download_model.py  # explicit mirror
 
 # Custom backend URL for dev proxy
-VITE_BACKEND_URL=http://192.168.1.100:8000 npm run dev
+VITE_BACKEND_URL=http://192.168.1.100:8010 npm run dev
 
 # Run all tests
 pytest tests/ -v
@@ -41,7 +41,7 @@ pytest tests/ --cov=backend -v
 pytest tests/test_performance.py -v --benchmark-only
 
 # Load testing
-locust -f tests/locustfile.py --host=http://localhost:8000
+locust -f tests/locustfile.py --host=http://localhost:8010
 
 # Lint / type check (backend)
 flake8 backend/
