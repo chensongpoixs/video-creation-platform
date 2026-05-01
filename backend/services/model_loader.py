@@ -13,35 +13,51 @@ from config import LLM_CONFIG, VIDEO_CONFIG, MEMORY_CONFIG
 logger = setup_logger(__name__)
 
 class LLMModelLoader:
-    """LLM 模型加载器 - 支持 FP16 优化"""
-    
+    """LLM 模型加载器 - device 由 config.py 中的 LLM_CONFIG['device'] 控制"""
+
     def __init__(self):
         self.model = None
         self.tokenizer = None
-        self.device = LLM_CONFIG["device"] if torch.cuda.is_available() else "cpu"
+        self.device = LLM_CONFIG["device"]           # 直接取配置值: "cuda" 或 "cpu"
         self.is_loaded = False
         self.use_fp16 = LLM_CONFIG.get("use_fp16", True)
-        
-        logger.info(f"LLM 加载器初始化，使用设备: {self.device}")
+
+        logger.info(f"LLM 加载器初始化，配置设备: {self.device}")
         logger.info(f"FP16 模式: {'启用' if self.use_fp16 else '禁用'}")
-        
+
+        # 配置校验
+        if self.device == "cuda" and not torch.cuda.is_available():
+            logger.warning(
+                "⚠️ 配置 device='cuda' 但 CUDA 不可用！"
+                "模型加载将失败，请安装 CUDA 版 PyTorch 或修改 config.py 中 device='cpu'"
+            )
+
         # 自动优化：根据显存大小决定是否使用 FP16
         if MEMORY_CONFIG.get("auto_optimize", True) and torch.cuda.is_available():
             total_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
             force_fp16_threshold = MEMORY_CONFIG.get("force_fp16_threshold", 16.0)
-            
+
             if total_memory < force_fp16_threshold and not self.use_fp16:
                 logger.warning(f"显存 {total_memory:.1f}GB < {force_fp16_threshold}GB，自动启用 FP16")
                 self.use_fp16 = True
-    
+
     def load_model(self):
-        """加载 ChatGLM3 模型 - 支持 FP16 优化"""
+        """加载 ChatGLM3 模型 — cuda/cpu 由配置决定"""
         if self.is_loaded:
             logger.info("LLM 模型已加载，跳过")
             return True
-        
+
+        # 校验：配置 cuda 但 CUDA 不可用 → 直接失败
+        if self.device == "cuda" and not torch.cuda.is_available():
+            logger.error(
+                "❌ 无法加载 LLM 模型: config.py 中 device='cuda'，但 CUDA 不可用。\n"
+                "   解决方案: 1) 安装 PyTorch CUDA 版: pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124\n"
+                "           2) 或修改 config.py: LLM_CONFIG['device'] = 'cpu'"
+            )
+            return False
+
         try:
-            logger.info(f"开始加载 LLM 模型: {LLM_CONFIG['model_name']}")
+            logger.info(f"开始加载 LLM 模型（设备: {self.device}）: {LLM_CONFIG['model_name']}")
             
             # 显存监控
             if MEMORY_CONFIG.get("enable_monitoring", True):
@@ -178,34 +194,50 @@ class LLMModelLoader:
         logger.info("LLM 模型已卸载")
 
 class VideoModelLoader:
-    """视频生成模型加载器 - 支持 FP16 优化"""
-    
+    """视频生成模型加载器 - device 由 config.py 中的 VIDEO_CONFIG['device'] 控制"""
+
     def __init__(self):
         self.model = None
-        self.device = VIDEO_CONFIG["device"] if torch.cuda.is_available() else "cpu"
+        self.device = VIDEO_CONFIG["device"]          # 直接取配置值: "cuda" 或 "cpu"
         self.is_loaded = False
         self.use_fp16 = VIDEO_CONFIG.get("use_fp16", True)
-        
-        logger.info(f"视频模型加载器初始化，使用设备: {self.device}")
+
+        logger.info(f"视频模型加载器初始化，配置设备: {self.device}")
         logger.info(f"FP16 模式: {'启用' if self.use_fp16 else '禁用'}")
-        
+
+        # 配置校验
+        if self.device == "cuda" and not torch.cuda.is_available():
+            logger.warning(
+                "⚠️ 配置 device='cuda' 但 CUDA 不可用！"
+                "模型加载将失败，请安装 CUDA 版 PyTorch 或修改 config.py 中 device='cpu'"
+            )
+
         # 自动优化
         if MEMORY_CONFIG.get("auto_optimize", True) and torch.cuda.is_available():
             total_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
             force_fp16_threshold = MEMORY_CONFIG.get("force_fp16_threshold", 16.0)
-            
+
             if total_memory < force_fp16_threshold and not self.use_fp16:
                 logger.warning(f"显存 {total_memory:.1f}GB < {force_fp16_threshold}GB，自动启用 FP16")
                 self.use_fp16 = True
-    
+
     def load_model(self):
-        """加载 Stable Diffusion Video 模型 - 支持 FP16 优化"""
+        """加载 Stable Diffusion Video 模型 — cuda/cpu 由配置决定"""
         if self.is_loaded:
             logger.info("视频模型已加载，跳过")
             return True
-        
+
+        # 校验：配置 cuda 但 CUDA 不可用 → 直接失败
+        if self.device == "cuda" and not torch.cuda.is_available():
+            logger.error(
+                "❌ 无法加载视频模型: config.py 中 device='cuda'，但 CUDA 不可用。\n"
+                "   解决方案: 1) 安装 PyTorch CUDA 版: pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124\n"
+                "           2) 或修改 config.py: VIDEO_CONFIG['device'] = 'cpu'"
+            )
+            return False
+
         try:
-            logger.info(f"开始加载视频模型: {VIDEO_CONFIG['model_name']}")
+            logger.info(f"开始加载视频模型（设备: {self.device}）: {VIDEO_CONFIG['model_name']}")
             
             # 显存监控
             if MEMORY_CONFIG.get("enable_monitoring", True):

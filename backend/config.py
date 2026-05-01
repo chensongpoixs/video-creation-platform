@@ -26,9 +26,9 @@ MODELS_DIR.mkdir(exist_ok=True)
 LLM_CONFIG = {
     "model_name": "THUDM/chatglm3-6b",
     "model_path": str(MODELS_DIR / "chatglm3-6b"),
-    "device": "cuda",
-    "use_fp16": True,  # 启用 FP16 半精度，显存减半
-    "use_int8": False,  # INT8 量化（更激进的优化）
+    "device": "cpu",           # "cuda"(GPU) 或 "cpu"，默认 cuda
+    "use_fp16": True,           # 启用 FP16 半精度，显存减半
+    "use_int8": False,          # INT8 量化（更激进的优化）
     "max_length": 2048,
     "temperature": 0.7,
     "top_p": 0.9,
@@ -43,8 +43,8 @@ LLM_CONFIG = {
 VIDEO_CONFIG = {
     "model_name": "stabilityai/stable-video-diffusion-img2vid-xt",
     "model_path": str(MODELS_DIR / "svd-xt"),
-    "device": "cuda",
-    "use_fp16": True,  # 启用 FP16 半精度，显存减半
+    "device": "cpu",           # "cuda"(GPU) 或 "cpu"，默认 cuda
+    "use_fp16": True,           # 启用 FP16 半精度，显存减半
     "num_inference_steps": 25,
     "guidance_scale": 7.5,
     "height": 576,

@@ -36,6 +36,7 @@ class TaskList(BaseModel):
     total: int
 
 
+@router.post("", response_model=TaskResponse)
 @router.post("/", response_model=TaskResponse)
 async def create_task(
     task: TaskCreate,
@@ -44,6 +45,13 @@ async def create_task(
     current_user: User = Depends(get_current_active_user),
 ):
     """创建新的视频生成任务"""
+    print("=" * 70)
+    print("[创建任务接口] 收到请求")
+    print(f"  user_id: {current_user.id}")
+    print(f"  username: {current_user.username}")
+    print(f"  prompt: {task.prompt}")
+    print("=" * 70)
+
     task_repo = TaskRepository(db)
 
     task_id = str(uuid4())
@@ -55,10 +63,15 @@ async def create_task(
         status=TaskStatus.PENDING.value,
     )
 
-    # 添加后台任务
+    # 显式 commit，确保后台任务启动时 task 已持久化（消除竞态）
+    db.commit()
+
+    # 添加后台任务（只传 task_id 和 prompt，后台任务自己管理 session）
     from services.task_processor import process_video_task
 
-    background_tasks.add_task(process_video_task, task_id, task.prompt, task_repo, db)
+    background_tasks.add_task(process_video_task, task_id, task.prompt)
+
+    print(f"[创建任务接口] ✅ 任务已创建: task_id={task_id}")
 
     return TaskResponse(
         task_id=db_task.task_id,
@@ -78,14 +91,20 @@ async def get_task(
     current_user: User = Depends(get_current_active_user),
 ):
     """获取任务详情"""
+    print(f"[获取任务接口] task_id={task_id}, user_id={current_user.id}")
+
     task_repo = TaskRepository(db)
     task = task_repo.get_by_task_id(task_id)
 
     if not task:
+        print(f"[获取任务接口] ❌ 任务不存在: {task_id}")
         raise HTTPException(status_code=404, detail="任务不存在")
 
     if task.user_id != current_user.id:
+        print(f"[获取任务接口] ❌ 无权访问: task.user={task.user_id}, current={current_user.id}")
         raise HTTPException(status_code=403, detail="无权访问此任务")
+
+    print(f"[获取任务接口] ✅ 返回任务: status={task.status}")
 
     return TaskResponse(
         task_id=task.task_id,
@@ -98,6 +117,7 @@ async def get_task(
     )
 
 
+@router.get("", response_model=TaskList)
 @router.get("/", response_model=TaskList)
 async def list_tasks(
     skip: int = Query(0, ge=0),
@@ -107,6 +127,8 @@ async def list_tasks(
     current_user: User = Depends(get_current_active_user),
 ):
     """获取任务列表"""
+    print(f"[任务列表接口] user_id={current_user.id}, skip={skip}, limit={limit}, status={status}")
+
     task_repo = TaskRepository(db)
 
     tasks = task_repo.get_by_user(
@@ -117,6 +139,8 @@ async def list_tasks(
     )
 
     total = task_repo.count_by_user(current_user.id, status=status)
+
+    print(f"[任务列表接口] ✅ 返回 {len(tasks)} 条, 共 {total} 条")
 
     task_responses = [
         TaskResponse(
@@ -141,14 +165,19 @@ async def delete_task(
     current_user: User = Depends(get_current_active_user),
 ):
     """删除任务"""
+    print(f"[删除任务接口] task_id={task_id}, user_id={current_user.id}")
+
     task_repo = TaskRepository(db)
     task = task_repo.get_by_task_id(task_id)
 
     if not task:
+        print(f"[删除任务接口] ❌ 任务不存在: {task_id}")
         raise HTTPException(status_code=404, detail="任务不存在")
 
     if task.user_id != current_user.id:
+        print(f"[删除任务接口] ❌ 无权删除: task.user={task.user_id}, current={current_user.id}")
         raise HTTPException(status_code=403, detail="无权删除此任务")
 
     task_repo.delete(task.id)
+    print(f"[删除任务接口] ✅ 已删除: {task_id}")
     return {"message": "任务已删除"}

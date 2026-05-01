@@ -22,7 +22,25 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
 
     try:
+        import torch
         from models.database import init_db
+
+        # GPU 诊断
+        logger.info("=" * 50)
+        logger.info("GPU 环境检测:")
+        logger.info(f"  CUDA 可用: {torch.cuda.is_available()}")
+        if torch.cuda.is_available():
+            logger.info(f"  GPU 数量: {torch.cuda.device_count()}")
+            for i in range(torch.cuda.device_count()):
+                props = torch.cuda.get_device_properties(i)
+                logger.info(f"  GPU[{i}]: {props.name}")
+                logger.info(f"    显存: {props.total_memory / 1024**3:.1f} GB")
+            logger.info(f"  PyTorch CUDA: {torch.version.cuda}")
+        else:
+            logger.warning("  CUDA 不可用，如果 config.py 中 device='cuda' 则模型加载将失败")
+        logger.info(f"  LLM 配置 device: {LLM_CONFIG['device']}")
+        logger.info(f"  Video 配置 device: {VIDEO_CONFIG['device']}")
+        logger.info("=" * 50)
 
         # 初始化数据库表
         logger.info("初始化数据库...")
@@ -35,17 +53,17 @@ async def lifespan(app: FastAPI):
         logger.info("开始加载 LLM 模型...")
         llm_success = llm_loader.load_model()
         if llm_success:
-            logger.info("LLM 模型加载成功")
+            logger.info("✅ LLM 模型加载成功")
         else:
-            logger.warning("LLM 模型加载失败，将使用备用方案")
+            logger.warning("⚠️ LLM 模型未加载，脚本生成使用备用方案")
 
         # 加载视频模型
         logger.info("开始加载视频生成模型...")
         video_success = video_loader.load_model()
         if video_success:
-            logger.info("视频生成模型加载成功")
+            logger.info("✅ 视频生成模型加载成功")
         else:
-            logger.warning("视频生成模型加载失败，将使用备用方案")
+            logger.warning("⚠️ 视频模型未加载，视频生成使用备用方案")
 
     except Exception as e:
         logger.error(f"模型初始化失败: {str(e)}")

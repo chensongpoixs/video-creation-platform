@@ -49,38 +49,38 @@ def generate_script(prompt: str) -> Dict:
     """
     try:
         logger.info(f"开始生成脚本，用户输入: {prompt}")
-        
+
         # 尝试使用 LLM 生成
         try:
             from services.model_loader import llm_loader
-            
+
             if llm_loader.is_loaded:
                 # 构造完整提示词
                 full_prompt = SCRIPT_GENERATION_PROMPT.format(user_prompt=prompt)
-                
-                # 调用 LLM 生成
+
+                logger.info(f"调用 LLM 推理（设备: {llm_loader.device}）...")
                 response = llm_loader.generate(
                     full_prompt,
                     max_length=2048,
                     temperature=0.7
                 )
-                
+
                 logger.info(f"LLM 原始输出: {response[:200]}...")
-                
+
                 # 解析 JSON
                 script = parse_llm_response(response)
-                
+
                 # 验证和修正
                 script = validate_and_fix_script(script)
-                
+
                 logger.info(f"✅ 脚本生成成功（LLM），共 {len(script['scenes'])} 个场景")
                 return script
             else:
                 logger.warning("LLM 模型未加载，使用备用方案")
-                
+
         except Exception as e:
             logger.warning(f"LLM 生成失败: {str(e)}，使用备用方案")
-        
+
         # 备用方案：简单分句
         return generate_fallback_script(prompt)
         
