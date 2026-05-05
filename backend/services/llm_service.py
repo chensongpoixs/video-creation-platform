@@ -50,9 +50,14 @@ def generate_script(prompt: str) -> Dict:
     try:
         logger.info(f"开始生成脚本，用户输入: {prompt}")
 
-        # 尝试使用 LLM 生成
+        # 尝试使用 LLM 生成（按需重新加载：显存 swap 后可能已被卸载）
         try:
             from services.model_loader import llm_loader
+
+            # 显存管理可能已卸载 LLM，GPU 模式下按需重新加载
+            if not llm_loader.is_loaded and llm_loader.device == "cuda":
+                logger.info("LLM 模型已被卸载（显存管理），重新加载...")
+                llm_loader.load_model()
 
             if llm_loader.is_loaded:
                 # CPU 推理控制：默认情况下 CPU 跳过 LLM（太慢），设置 allow_cpu_inference=True 可强制使用

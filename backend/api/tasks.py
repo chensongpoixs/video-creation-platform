@@ -31,11 +31,18 @@ class TaskCreate(BaseModel):
     prompt: str
 
 
+class SceneVideoInfo(BaseModel):
+    scene_number: int
+    url: str
+    duration: Optional[float] = None
+
+
 class TaskResponse(BaseModel):
     task_id: str
     status: str
     prompt: str
-    result: Optional[str] = None
+    result: Optional[str] = None         # 最终拼接视频 URL
+    videos: List[SceneVideoInfo] = []    # 每个分镜的独立视频
     created_at: str
     error: Optional[str] = None
     progress: Optional[int] = None
@@ -44,6 +51,47 @@ class TaskResponse(BaseModel):
 class TaskList(BaseModel):
     tasks: List[TaskResponse]
     total: int
+
+
+def _scene_videos_for(task) -> List[SceneVideoInfo]:
+    """构建场景视频列表：优先从 DB Video 记录读取，否则扫描视频输出目录"""
+    videos = []
+    seen_scenes = set()
+
+    # 优先从数据库 Video 表读取
+    if hasattr(task, 'videos') and task.videos:
+        for v in sorted(task.videos, key=lambda x: x.scene_number):
+            url = _video_url(v.file_path)
+            if url and v.scene_number not in seen_scenes:
+                videos.append(SceneVideoInfo(
+                    scene_number=v.scene_number,
+                    url=url,
+                    duration=v.duration,
+                ))
+                seen_scenes.add(v.scene_number)
+
+    # 如果 DB 中没有，扫描输出目录查找 {task_id}_scene_N.mp4
+    if not videos and task.task_id:
+        import glob
+        import os
+        pattern = os.path.join(VIDEO_OUTPUT_DIR, f"{task.task_id}_scene_*.mp4")
+        scene_files = sorted(glob.glob(pattern))
+        for f in scene_files:
+            basename = os.path.basename(f)
+            # 从 "uuid_scene_N.mp4" 提取场景号
+            try:
+                scene_num_str = basename.replace(f"{task.task_id}_scene_", "").replace(".mp4", "")
+                scene_num = int(scene_num_str)
+                if scene_num not in seen_scenes:
+                    videos.append(SceneVideoInfo(
+                        scene_number=scene_num,
+                        url=_video_url(f),
+                    ))
+                    seen_scenes.add(scene_num)
+            except ValueError:
+                pass
+
+    return videos
 
 
 @router.post("", response_model=TaskResponse)
@@ -86,8 +134,9 @@ async def create_task(
     return TaskResponse(
         task_id=db_task.task_id,
         status=db_task.status,
-        prompt=db_task.prompt,
+        prompt=db_task.prompt or "",
         result=_video_url(db_task.video_path),
+        videos=_scene_videos_for(db_task),
         created_at=db_task.created_at.isoformat() if db_task.created_at else datetime.now().isoformat(),
         error=db_task.error_message,
         progress=db_task.progress,
@@ -104,7 +153,7 @@ async def get_task(
     print(f"[获取任务接口] task_id={task_id}, user_id={current_user.id}")
 
     task_repo = TaskRepository(db)
-    task = task_repo.get_by_task_id(task_id)
+    task = task_repo.get_with_relations(task_id)  # eager load videos + scripts
 
     if not task:
         print(f"[获取任务接口] ❌ 任务不存在: {task_id}")

@@ -3,9 +3,9 @@ uvicorn[standard]==0.24.0
 pydantic==2.5.0
 sqlalchemy==2.0.23
 python-multipart==0.0.6
-torch==2.5.1
-transformers==4.46.3
-diffusers==0.31.0
+torch>=2.7.0  # 2.7+ + cu128 支持 RTX 5080 (Blackwell, sm_120)
+transformers>=4.48.0  # CogVideoX 需要 Dinov2WithRegistersConfig
+diffusers>=0.31.0    # CogVideoXPipeline
 opencv-python==4.8.1.78
 moviepy==1.0.3
 pillow==10.1.0
@@ -17,7 +17,8 @@ flake8==6.1.0
 mypy==1.7.0
 accelerate==1.0.1
 sentencepiece==0.1.99
-protobuf==4.25.1
+protobuf>=3.20.0,<5.0.0   # sentencepiece 兼容（不能太新）
+tiktoken>=0.5.0           # CogVideoX tokenizer 需要
 xformers==0.0.28.post3; sys_platform != 'win32'
 PyJWT==2.8.0
 bcrypt==4.0.1

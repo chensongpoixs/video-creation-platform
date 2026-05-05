@@ -42,11 +42,11 @@ PROJECT_MODELS = {
         "loader": "transformers",  # 使用 AutoModel + AutoTokenizer
     },
     "video": {
-        "name": "Stable Video Diffusion XT（视频生成）",
-        "repo_id": "stabilityai/stable-video-diffusion-img2vid-xt",
-        "modelscope_id": "AI-ModelScope/stable-video-diffusion-img2vid-xt",
-        "output_dir": str(Path(__file__).resolve().parent.parent / "backend" / "models" / "svd-xt"),
-        "loader": "diffusers",  # 使用 StableVideoDiffusionPipeline
+        "name": "CogVideoX-2b（文生视频，支持中文）",
+        "repo_id": "THUDM/CogVideoX-2b",
+        "modelscope_id": "ZhipuAI/CogVideoX-2b",
+        "output_dir": str(Path(__file__).resolve().parent.parent / "backend" / "models" / "cogvideox-2b"),
+        "loader": "diffusers",  # 使用 CogVideoXPipeline
     },
 }
 
@@ -101,12 +101,12 @@ def download_from_huggingface(model_key: str) -> bool:
             print(f"      ✅ 模型下载完成 ({time.time() - t0:.0f}s)")
 
         elif loader == "diffusers":
-            from diffusers import StableVideoDiffusionPipeline
+            from diffusers import CogVideoXPipeline
             import torch
 
-            print("\n下载 Stable Video Diffusion Pipeline（权重 + 配置 + scheduler + VAE）...")
+            print("\n下载 CogVideoX-2b Pipeline（权重 + 配置 + VAE + Transformer）...")
             t0 = time.time()
-            StableVideoDiffusionPipeline.from_pretrained(
+            CogVideoXPipeline.from_pretrained(
                 repo_id,
                 torch_dtype=torch.float32,
                 cache_dir=output_dir,

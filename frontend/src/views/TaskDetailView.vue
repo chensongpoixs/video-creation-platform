@@ -38,9 +38,25 @@
           </div>
         </div>
 
-        <!-- Video Player -->
+        <!-- Scene Videos -->
+        <div v-if="task.videos && task.videos.length > 0" class="detail-card">
+          <h2 class="section-title">分镜视频 ({{ task.videos.length }} 个场景)</h2>
+          <div class="scene-video-list">
+            <div v-for="video in task.videos" :key="video.scene_number" class="scene-video-item">
+              <div class="scene-video-header">
+                <el-tag type="primary" effect="plain" size="small">
+                  场景 {{ video.scene_number }}
+                </el-tag>
+                <span v-if="video.duration" class="scene-duration">{{ video.duration }}s</span>
+              </div>
+              <VideoPlayer :src="video.url" :task-id="`${task.task_id}_scene_${video.scene_number}`" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Final Result Video -->
         <div v-if="task.status === 'completed' && task.result" class="detail-card">
-          <h2 class="section-title">生成结果</h2>
+          <h2 class="section-title">最终结果（拼接 + 后处理）</h2>
           <VideoPlayer :src="task.result" :task-id="task.task_id" />
         </div>
 
@@ -238,6 +254,30 @@ function formatTime(iso: string) {
 }
 
 .processing-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.scene-video-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.scene-video-item {
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  padding: 16px;
+}
+
+.scene-video-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.scene-duration {
   font-size: var(--font-size-sm);
   color: var(--color-text-tertiary);
 }

@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Backend: install dependencies (China mirror)
-pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+# Backend: install dependencies (CUDA 12.8 for RTX 5080, China mirror)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # Backend: start development server (from backend/)
@@ -20,10 +20,10 @@ npm run dev            # hot-reload, port auto-detected, proxies API to 8010
 npm run build          # production build to frontend/dist/ (includes public/config.js)
 npm run preview        # preview production build
 
-# Download models (project uses 2 models: ChatGLM3-6B + SVD-XT, see docs/MODELS.md)
+# Download models (project uses 2 models: ChatGLM3-6B + CogVideoX-2b, see docs/MODELS.md)
 python scripts/download_model.py                  # download both models (HF mirror)
 python scripts/download_model.py --model llm      # ChatGLM3-6B only
-python scripts/download_model.py --model video    # SVD-XT only
+python scripts/download_model.py --model video    # CogVideoX-2b only
 python scripts/download_model.py --source ms      # download both from ModelScope
 
 # Custom backend URL for dev proxy

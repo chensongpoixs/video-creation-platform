@@ -146,8 +146,13 @@ class LLMModelLoader:
             model_path = LLM_CONFIG["model_path"]
             model_name = LLM_CONFIG["model_name"]
 
-            # 本地不存在 → 自动下载到项目目录
-            if not os.path.exists(model_path):
+            # 检查关键文件是否存在（config.json 是 transformers 模型的标志文件）
+            model_config = os.path.join(model_path, "config.json")
+            if not os.path.exists(model_config):
+                # 目录存在但可能为空 → 清理后重新下载
+                if os.path.exists(model_path):
+                    import shutil
+                    shutil.rmtree(model_path)
                 if LLM_CONFIG.get("auto_download", False):
                     if not _download_model_files(
                         model_name, model_path,
@@ -156,7 +161,7 @@ class LLMModelLoader:
                         logger.error("LLM 模型下载失败，将使用备用方案")
                         return False
                 else:
-                    logger.error(f"模型路径不存在且 auto_download=False: {model_path}")
+                    logger.error(f"模型文件不存在且 auto_download=False: {model_path}")
                     logger.info("请运行 python scripts/download_model.py --model llm 或设置 auto_download=True")
                     return False
 
@@ -281,11 +286,14 @@ class LLMModelLoader:
         logger.info("LLM 模型已卸载")
 
 class VideoModelLoader:
-    """视频生成模型加载器 - device 由 config.py 中的 VIDEO_CONFIG['device'] 控制"""
+    """视频生成模型加载器 — CogVideoX-2b 文生视频（原生支持中文 prompt）
+
+    CogVideoX 由清华大学 THUDM 团队发布，与 ChatGLM 同源，通过 diffusers 集成。
+    """
 
     def __init__(self):
         self.model = None
-        self.device = VIDEO_CONFIG["device"]          # 直接取配置值: "cuda" 或 "cpu"
+        self.device = VIDEO_CONFIG["device"]
         self.is_loaded = False
         self.use_fp16 = VIDEO_CONFIG.get("use_fp16", True)
 
@@ -309,15 +317,15 @@ class VideoModelLoader:
                 self.use_fp16 = True
 
     def load_model(self):
-        """加载 Stable Diffusion Video 模型 — cuda/cpu 由配置决定
+        """加载 CogVideoX-2b 文生视频模型
 
         按需下载：仅当模型本地不存在且 auto_download=True 时下载。
+        CogVideoX-2b FP16 约需 6-8GB 显存，适合消费级 GPU。
         """
         if self.is_loaded:
             logger.info("视频模型已加载，跳过")
             return True
 
-        # 校验：配置 cuda 但 CUDA 不可用 → 直接失败
         if self.device == "cuda" and not torch.cuda.is_available():
             logger.error(
                 "❌ 无法加载视频模型: config.py 中 device='cuda'，但 CUDA 不可用。\n"
@@ -329,79 +337,76 @@ class VideoModelLoader:
         try:
             logger.info(f"开始加载视频模型（设备: {self.device}）: {VIDEO_CONFIG['model_name']}")
 
-            # 显存监控
             if MEMORY_CONFIG.get("enable_monitoring", True):
                 print_memory("加载前 - ")
 
             model_path = VIDEO_CONFIG["model_path"]
             model_name = VIDEO_CONFIG["model_name"]
 
-            # 本地不存在 → 自动下载到项目目录
-            if not os.path.exists(model_path):
+            # 检查模型文件是否存在（model_index.json 是 diffusers 模型的标志文件）
+            model_index = os.path.join(model_path, "model_index.json")
+            if not os.path.exists(model_index):
+                # 目录存在但为空 → 删除，让 snapshot_download 重新下载
+                if os.path.exists(model_path):
+                    import shutil
+                    shutil.rmtree(model_path)
                 if VIDEO_CONFIG.get("auto_download", False):
                     if not _download_model_files(
                         model_name, model_path,
-                        description="Stable Video Diffusion XT（视频生成）",
+                        description="CogVideoX-2b（文生视频，支持中文）",
                     ):
                         logger.error("视频模型下载失败，将使用备用方案")
                         return False
                 else:
-                    logger.warning(f"模型路径不存在且 auto_download=False: {model_path}")
+                    logger.warning(f"模型文件不存在且 auto_download=False: {model_path}")
                     logger.info("提示：首次运行时会自动下载，或使用备用方案")
                     return False
 
             try:
-                from diffusers import StableVideoDiffusionPipeline
+                from diffusers import CogVideoXPipeline
             except ImportError:
-                logger.error("diffusers 未安装，请运行: pip install diffusers")
+                logger.error(
+                    "diffusers 版本过低，CogVideoX 需要 diffusers >= 0.30.0\n"
+                    "升级: pip install diffusers --upgrade"
+                )
                 return False
 
-            logger.info("加载 Stable Diffusion Video 模型...")
+            logger.info("加载 CogVideoX-2b 文生视频 Pipeline...")
 
             load_kwargs = {}
 
-            # FP16 优化
             if self.use_fp16 and self.device == "cuda":
-                logger.info("✅ 使用 FP16 半精度（显存减半）")
+                logger.info("✅ 使用 FP16 半精度（约 6-8GB 显存）")
                 load_kwargs["torch_dtype"] = torch.float16
-                load_kwargs["variant"] = "fp16"
             else:
                 load_kwargs["torch_dtype"] = torch.float32
 
-            self.model = StableVideoDiffusionPipeline.from_pretrained(
+            self.model = CogVideoXPipeline.from_pretrained(
                 model_path,
                 **load_kwargs
             )
 
-            # 移动到设备
+            # 移动到 GPU 并启用优化
             if self.device == "cuda":
                 self.model = self.model.to(self.device)
 
-                # 启用内存优化
-                if VIDEO_CONFIG.get("enable_attention_slicing", True):
-                    logger.info("✅ 启用注意力切片（内存优化）")
-                    self.model.enable_attention_slicing()
-
                 if VIDEO_CONFIG.get("enable_vae_slicing", True):
                     try:
-                        self.model.enable_vae_slicing()
+                        self.model.vae.enable_slicing()
                         logger.info("✅ 启用 VAE 切片（内存优化）")
-                    except:
+                    except Exception:
                         logger.debug("VAE 切片不可用")
 
-                # 尝试启用 xFormers 加速
-                if VIDEO_CONFIG.get("enable_xformers", True):
+                if VIDEO_CONFIG.get("enable_attention_slicing", True):
                     try:
-                        self.model.enable_xformers_memory_efficient_attention()
-                        logger.info("✅ 启用 xFormers 加速")
-                    except Exception as e:
-                        logger.warning(f"xFormers 不可用: {str(e)}")
-                        logger.info("提示：安装 xformers 可提升性能: pip install xformers")
+                        self.model.enable_attention_slicing()
+                        logger.info("✅ 启用注意力切片（内存优化）")
+                    except Exception:
+                        logger.debug("注意力切片不可用")
 
             self.is_loaded = True
-            logger.info("✅ 视频模型加载完成")
+            logger.info("✅ CogVideoX-2b 模型加载完成")
 
-            # 显存监控
             if MEMORY_CONFIG.get("enable_monitoring", True):
                 print_memory("加载后 - ")
                 peak = memory_monitor.get_peak_memory()
@@ -415,88 +420,78 @@ class VideoModelLoader:
             logger.error(traceback.format_exc())
             return False
     
-    def generate_video(self, prompt: str, image=None, **kwargs) -> list:
+    def generate_video(self, prompt: str = "", image=None, **kwargs) -> list:
         """
-        生成视频
-        
+        使用 CogVideoX 文生视频（原生支持中文 prompt）
+
         Args:
-            prompt: 文本描述
-            image: 输入图像（可选）
-            **kwargs: 生成参数
-            
+            prompt: 中文/英文场景描述，直接传给 CogVideoX 模型
+            image: 不使用（CogVideoX 是文生视频，不需要图像输入）
+            **kwargs: 生成参数覆盖
+
         Returns:
-            视频帧列表
+            视频帧列表 (list of PIL Images)
         """
         if not self.is_loaded or self.model is None:
             raise RuntimeError("视频模型未加载")
-        
+
+        if not prompt or not prompt.strip():
+            raise ValueError("CogVideoX 需要文本 prompt，不能为空")
+
         try:
-            # 生成前清理缓存
             if MEMORY_CONFIG.get("clear_cache_after_generation", True):
                 clear_memory()
-            
+
             gen_kwargs = {
-                "num_inference_steps": VIDEO_CONFIG.get("num_inference_steps", 25),
-                "guidance_scale": VIDEO_CONFIG.get("guidance_scale", 7.5),
-                "height": VIDEO_CONFIG.get("height", 576),
-                "width": VIDEO_CONFIG.get("width", 1024),
-                "num_frames": VIDEO_CONFIG.get("num_frames", 25),
+                "num_inference_steps": VIDEO_CONFIG.get("num_inference_steps", 50),
+                "guidance_scale": VIDEO_CONFIG.get("guidance_scale", 6.0),
+                "height": VIDEO_CONFIG.get("height", 480),
+                "width": VIDEO_CONFIG.get("width", 720),
+                "num_frames": VIDEO_CONFIG.get("num_frames", 49),
+                "num_videos_per_prompt": 1,
             }
             gen_kwargs.update(kwargs)
-            
-            logger.info(f"生成视频，参数: {gen_kwargs}")
-            
-            # 显存监控
+
+            logger.info(f"文本提示词: {prompt[:80]}...")
+            logger.info(f"生成参数: {gen_kwargs}")
+
             if MEMORY_CONFIG.get("enable_monitoring", True):
                 memory_monitor.record_snapshot("生成前")
                 print_memory("生成前 - ")
-            
-            if image is not None:
-                output = self.model(
-                    image=image,
-                    prompt=prompt,
-                    **gen_kwargs
-                )
-            else:
-                logger.warning("需要输入图像，使用默认图像")
-                from PIL import Image
-                image = Image.new('RGB', (gen_kwargs["width"], gen_kwargs["height"]))
-                output = self.model(
-                    image=image,
-                    prompt=prompt,
-                    **gen_kwargs
-                )
-            
+
+            output = self.model(
+                prompt=prompt,
+                **gen_kwargs
+            )
+
             frames = output.frames[0]
-            logger.info(f"✅ 视频生成完成，帧数: {len(frames)}")
-            
-            # 生成后清理缓存
+            logger.info(f"✅ CogVideoX 视频生成完成，帧数: {len(frames)}")
+
             if MEMORY_CONFIG.get("clear_cache_after_generation", True):
                 clear_memory()
-            
-            # 显存监控
+
             if MEMORY_CONFIG.get("enable_monitoring", True):
                 memory_monitor.record_snapshot("生成后")
                 print_memory("生成后 - ")
                 peak = memory_monitor.get_peak_memory()
                 logger.info(f"峰值显存: {peak:.2f} GB")
-            
+
             return frames
-            
+
         except Exception as e:
             logger.error(f"视频生成失败: {str(e)}")
             raise
-    
+
     def unload_model(self):
         """卸载模型释放显存"""
         if self.model:
             del self.model
             self.model = None
             self.is_loaded = False
-            
+
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        
+
         logger.info("视频模型已卸载")
 
 # 全局实例

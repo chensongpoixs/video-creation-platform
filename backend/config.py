@@ -42,21 +42,22 @@ LLM_CONFIG = {
 
 # 视频生成模型配置
 VIDEO_CONFIG = {
-    "model_name": "stabilityai/stable-video-diffusion-img2vid-xt",
-    "model_path": str(MODELS_DIR / "svd-xt"),
-    "device": "cpu",           # "cuda"(GPU) 或 "cpu"，默认 cuda
-    "use_fp16": True,           # 启用 FP16 半精度，显存减半
-    "num_inference_steps": 25,
-    "guidance_scale": 7.5,
-    "height": 576,
-    "width": 1024,
-    "num_frames": 25,
-    "fps": 6,
+    # CogVideoX-2b: 支持中文的文生视频模型（清华大学 THUDM 出品，与 ChatGLM 同团队）
+    "model_name": "THUDM/CogVideoX-2b",
+    "model_path": str(MODELS_DIR / "cogvideox-2b"),
+    "device": "cuda",            # CogVideoX-2b 推荐 GPU，约 12GB 显存
+    "use_fp16": True,            # FP16 半精度，显存减半（约 6-8GB）
+    "num_inference_steps": 50,   # CogVideoX-2b 默认推理步数
+    "guidance_scale": 6.0,       # CogVideoX 支持 CFG 引导
+    "height": 480,               # CogVideoX-2b 默认分辨率
+    "width": 720,
+    "num_frames": 49,            # 生成帧数（约 6 秒 @ 8fps）
+    "fps": 8,
     "auto_download": True,
-    # FP16 优化配置
-    "enable_attention_slicing": True,  # 注意力切片，减少显存
-    "enable_vae_slicing": True,  # VAE 切片，减少显存
-    "enable_xformers": True,  # xFormers 加速（需要安装）
+    # 内存优化
+    "enable_attention_slicing": True,  # 注意力切片
+    "enable_vae_slicing": True,        # VAE 切片
+    "enable_xformers": False,          # CogVideoX 使用 Flash Attention，非 xFormers
 }
 
 # 视频处理配置

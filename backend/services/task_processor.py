@@ -42,6 +42,8 @@ def _db_save_script_and_update_progress(task_id: str, script: dict):
         task = task_repo.get_by_task_id(task_id)
         if task:
             from models.script import Script
+            # 更新总场景数
+            task.total_scenes = len(script.get("scenes", []))
             for scene in script.get("scenes", []):
                 s = Script(
                     task_id=task.id,
@@ -53,6 +55,34 @@ def _db_save_script_and_update_progress(task_id: str, script: dict):
                 )
                 db.add(s)
             db.commit()
+    finally:
+        db.close()
+
+
+def _db_save_scene_video(task_id: str, scene_number: int, video_path: str, duration: float = 0):
+    """保存单个场景视频记录到数据库（独立短会话）"""
+    import os
+    db = SessionLocal()
+    try:
+        task_repo = TaskRepository(db)
+        task = task_repo.get_by_task_id(task_id)
+        if task is None:
+            logger.error(f"❌ 保存场景 {scene_number} 视频失败: 数据库中找不到任务 {task_id}")
+            return
+        from models.video import Video
+        file_size = os.path.getsize(video_path) if os.path.exists(video_path) else 0
+        v = Video(
+            task_id=task.id,
+            scene_number=scene_number,
+            file_path=video_path,
+            file_size=file_size,
+            duration=duration,
+        )
+        db.add(v)
+        db.commit()
+        logger.info(f"✅ 场景 {scene_number} 视频已保存到数据库: {video_path} ({file_size} bytes)")
+    except Exception as e:
+        logger.error(f"保存场景 {scene_number} 视频记录失败: {e}")
     finally:
         db.close()
 
@@ -87,6 +117,19 @@ def _db_update_progress(task_id: str, progress: int):
         task_repo = TaskRepository(db)
         task_repo.update_progress(task_id, progress=progress)
         db.commit()
+    finally:
+        db.close()
+
+
+def _db_update_completed_scenes(task_id: str, completed_scenes: int):
+    """更新已完成场景数（独立短会话）"""
+    db = SessionLocal()
+    try:
+        task_repo = TaskRepository(db)
+        task = task_repo.get_by_task_id(task_id)
+        if task:
+            task.completed_scenes = completed_scenes
+            db.commit()
     finally:
         db.close()
 
@@ -129,7 +172,38 @@ def process_video_task(
         # 阶段4: 生成视频 → 50% 开始，视频生成完成后 90%
         logger.info(f"任务 {task_id}: 生成视频")
         _db_update_progress(task_id, 50)
-        video_path = generate_video_from_script(script, task_id)
+
+        # VRAM 管理：卸载 LLM 释放显存，给视频模型腾空间
+        try:
+            from services.model_loader import llm_loader
+            if llm_loader.is_loaded:
+                logger.info("卸载 LLM 模型释放显存...")
+                llm_loader.unload_model()
+        except Exception:
+            pass
+
+        video_path, scene_videos = generate_video_from_script(script, task_id)
+
+        # 视频生成完成后释放视频模型显存
+        try:
+            from services.model_loader import video_loader
+            if video_loader.is_loaded:
+                logger.info("卸载视频模型释放显存...")
+                video_loader.unload_model()
+        except Exception:
+            pass
+
+        # 保存每个场景视频记录到数据库
+        for scene_num, scene_path in scene_videos:
+            scene_duration = 0
+            for s in script.get("scenes", []):
+                if s.get("scene_number") == scene_num:
+                    scene_duration = s.get("duration", 5)
+                    break
+            _db_save_scene_video(task_id, scene_num, scene_path, scene_duration)
+
+        # 更新已完成场景数
+        _db_update_completed_scenes(task_id, len(scene_videos))
 
         # 阶段5: 标记任务完成 (100%)
         logger.info(f"任务 {task_id}: 标记完成")

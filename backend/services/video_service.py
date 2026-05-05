@@ -12,45 +12,53 @@ from services.video_processor import VideoProcessor
 
 logger = setup_logger(__name__)
 
-def generate_video_from_script(script: Dict, task_id: str, 
-                               post_process_config: Optional[Dict] = None) -> str:
+def generate_video_from_script(script: Dict, task_id: str,
+                               post_process_config: Optional[Dict] = None):
     """
     根据脚本生成完整视频（含后处理）
-    
+
+    为每个分镜生成独立视频片段，再拼接为一个完整视频。
+
     Args:
         script: 包含分镜信息的脚本字典
         task_id: 任务ID
         post_process_config: 后处理配置（可选，默认使用全局配置）
-        
+
     Returns:
-        生成的视频文件路径
+        (final_video_path, scene_video_paths):
+          - final_video_path:  拼接+后处理后的最终视频路径
+          - scene_video_paths: 每个分镜的独立视频路径列表
     """
     try:
         logger.info(f"开始生成视频，任务ID: {task_id}")
-        
+
         # 使用默认配置或自定义配置
         if post_process_config is None:
             post_process_config = VIDEO_POST_PROCESSING_CONFIG
-        
+
         video_paths = []
-        
+        scene_videos = []  # [(scene_number, video_path), ...]
+
         # 为每个分镜生成视频片段
         for scene in script['scenes']:
-            logger.info(f"生成场景 {scene['scene_number']}: {scene['description'][:50]}")
+            scene_num = scene['scene_number']
+            logger.info(f"生成场景 {scene_num}/{len(script['scenes'])}: {scene['description'][:50]}")
             video_path = generate_scene_video(scene, task_id)
             video_paths.append(video_path)
-        
+            scene_videos.append((scene_num, video_path))
+            logger.info(f"✅ 场景 {scene_num} 视频: {video_path}")
+
         # 拼接所有视频片段
         stitched_video = stitch_videos(video_paths, task_id)
-        
+
         # 应用后处理
         final_video = apply_post_processing(
             stitched_video, task_id, post_process_config
         )
-        
-        logger.info(f"✅ 视频生成完成: {final_video}")
-        return final_video
-        
+
+        logger.info(f"✅ 视频生成完成: 共 {len(scene_videos)} 个场景 → {final_video}")
+        return final_video, scene_videos
+
     except Exception as e:
         logger.error(f"视频生成失败: {str(e)}")
         raise
@@ -76,25 +84,16 @@ def generate_scene_video(scene: Dict, task_id: str) -> str:
         if not video_loader.is_loaded:
             logger.warning("视频模型未加载，使用备用方案")
             return generate_scene_video_fallback(scene, task_id)
-        
-        # 优化提示词
-        from services.llm_service import optimize_prompt_for_video
-        prompt = optimize_prompt_for_video(scene['description'])
-        
-        logger.info(f"生成提示词: {prompt[:60]}...")
-        
-        # 生成占位符图像
-        image = VideoProcessor.generate_placeholder_image(
-            width=VIDEO_CONFIG.get("width", 1024),
-            height=VIDEO_CONFIG.get("height", 576)
-        )
-        
-        # 生成视频帧
-        logger.info("调用视频模型生成帧...")
+
+        # 直接使用场景描述作为 prompt（CogVideoX 原生支持中文）
+        prompt = scene.get('description', f'场景 {scene_id}')
+
+        logger.info(f"CogVideoX 提示词: {prompt[:80]}...")
+
+        # 生成视频帧（CogVideoX 是文生视频，不需要图像输入）
         frames = video_loader.generate_video(
             prompt=prompt,
-            image=image,
-            num_frames=VIDEO_CONFIG.get("num_frames", 25)
+            num_frames=VIDEO_CONFIG.get("num_frames", 49)
         )
         
         # 帧插值（可选）

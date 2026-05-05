@@ -1,10 +1,17 @@
 import api from './index'
 
+export interface SceneVideoInfo {
+  scene_number: number
+  url: string
+  duration?: number
+}
+
 export interface TaskInfo {
   task_id: string
   status: 'pending' | 'processing' | 'completed' | 'failed'
   prompt: string
   result: string | null
+  videos: SceneVideoInfo[]
   created_at: string
   error: string | null
   progress?: number

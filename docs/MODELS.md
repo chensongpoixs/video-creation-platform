@@ -7,7 +7,7 @@
 | 模型 | 用途 | 参数量 | 显存 | 加载框架 |
 |------|------|--------|------|----------|
 | ChatGLM3-6B | LLM 剧本生成 | 6B | ~12GB | transformers |
-| Stable Video Diffusion XT | 视频生成 | ~7B | ~16GB | diffusers |
+| CogVideoX-2b | 文生视频（中文）| 2B | ~8GB (FP16) | diffusers |
 
 ## 模型详情
 
@@ -31,24 +31,40 @@ model = AutoModel.from_pretrained(model_path, trust_remote_code=True)
 
 **备选方案**：当 GPU 不可用或模型未下载时，自动退回到 `generate_fallback_script()`（基于句子拆分的简单分镜），不阻塞主流程。
 
-### 2. Stable Video Diffusion XT（视频生成）
+### 2. CogVideoX-2b（文生视频，支持中文）
 
 ```
-仓库:     stabilityai/stable-video-diffusion-img2vid-xt
-本地路径: backend/models/svd-xt/
-加载器:   diffusers.StableVideoDiffusionPipeline
+仓库:     THUDM/CogVideoX-2b
+本地路径: backend/models/cogvideox-2b/
+加载器:   diffusers.CogVideoXPipeline
 配置:     backend/config.py → VIDEO_CONFIG
 ```
 
-**作用**：根据分镜头脚本逐场景生成视频帧，再拼接、后处理为最终 MP4 视频。
+**作用**：根据分镜头脚本的中文场景描述，逐场景生成视频帧，再拼接、后处理为最终 MP4 视频。
+
+**为什么选 CogVideoX-2b**：
+- ✅ **原生支持中文** — 清华大学 THUDM 出品，与 ChatGLM 同团队
+- ✅ **文生视频** — 直接文字→视频，无需中间图像
+- ✅ **显存友好** — 2B 参数，FP16 仅需 6-8GB 显存（SVD 需要 16GB）
+- ✅ **diffusers 集成** — 标准 Pipeline 接口
 
 **加载代码**（`backend/services/model_loader.py:VideoModelLoader.load_model`）：
 ```python
-from diffusers import StableVideoDiffusionPipeline
-model = StableVideoDiffusionPipeline.from_pretrained(model_path, torch_dtype=torch.float16)
+from diffusers import CogVideoXPipeline
+model = CogVideoXPipeline.from_pretrained(model_path, torch_dtype=torch.float16)
+# 生成：model(prompt="孩子们在公园里玩耍", num_frames=49, ...)
 ```
 
-**备选方案**：当模型不可用时，自动退回到 OpenCV 生成彩色帧 + 文字叠加的方案，确保流程可跑通。
+**对比**：
+| 特性 | CogVideoX-2b (新) | SVD-XT (旧) |
+|------|-------------------|-------------|
+| 输入方式 | 文字 → 视频 | 图片 → 视频 |
+| 中文支持 | ✅ 原生 | ❌ 不支持 |
+| 显存需求 | ~6-8GB (FP16) | ~16GB |
+| 参数量 | 2B | ~7B |
+| 推理速度 | ~30s/49帧 | ~20s/25帧 |
+
+**备选方案**：当 GPU 不可用或模型未加载时，自动退回到 OpenCV 生成渐变色 + 文字叠加的演示视频。
 
 ## 下载模型
 
@@ -92,9 +108,9 @@ backend/models/
 │   ├── tokenizer_config.json
 │   ├── pytorch_model.bin    # 或 model.safetensors
 │   └── ...
-└── svd-xt/                  # SVD-XT 视频生成模型
+└── cogvideox-2b/             # CogVideoX-2b 文生视频模型
     ├── model_index.json
-    ├── unet/
+    ├── transformer/
     ├── vae/
     ├── scheduler/
     └── ...
