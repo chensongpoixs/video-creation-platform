@@ -3,7 +3,7 @@
     <div class="video-container" v-if="!loadError">
       <video
         ref="videoRef"
-        :src="src"
+        :src="videoSrc"
         class="video-element"
         controls
         playsinline
@@ -55,10 +55,11 @@ import { ref, computed } from 'vue'
 import { Timer, Download, VideoPlay } from '@element-plus/icons-vue'
 
 const props = defineProps<{
-  src: string | null
+  src?: string | null
   taskId: string
 }>()
 
+const videoSrc = computed(() => props.src ?? undefined)
 const videoRef = ref<HTMLVideoElement | null>(null)
 const videoDuration = ref(0)
 const videoWidth = ref(0)

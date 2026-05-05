@@ -13,12 +13,6 @@ interface AppConfig {
   backendPort: number
 }
 
-declare global {
-  interface Window {
-    __APP_CONFIG__?: AppConfig
-  }
-}
-
 declare module 'element-plus/dist/locale/zh-cn.mjs' {
   const locale: any
   export default locale

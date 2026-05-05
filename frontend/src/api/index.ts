@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 // 从 public/config.js 读取后端地址配置
-const appConfig = window.__APP_CONFIG__ || {}
+const appConfig: Partial<AppConfig> = window.__APP_CONFIG__ || {}
 
 const api = axios.create({
   baseURL: appConfig.apiBaseURL || '/',
