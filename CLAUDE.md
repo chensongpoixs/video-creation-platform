@@ -20,9 +20,11 @@ npm run dev            # hot-reload, port auto-detected, proxies API to 8010
 npm run build          # production build to frontend/dist/ (includes public/config.js)
 npm run preview        # preview production build
 
-# Download models (China mirror default: hf-mirror.com)
-python scripts/download_model.py --source hf
-HF_MIRROR="https://hf-mirror.com" python scripts/download_model.py  # explicit mirror
+# Download models (project uses 2 models: ChatGLM3-6B + SVD-XT, see docs/MODELS.md)
+python scripts/download_model.py                  # download both models (HF mirror)
+python scripts/download_model.py --model llm      # ChatGLM3-6B only
+python scripts/download_model.py --model video    # SVD-XT only
+python scripts/download_model.py --source ms      # download both from ModelScope
 
 # Custom backend URL for dev proxy
 VITE_BACKEND_URL=http://192.168.1.100:8010 npm run dev

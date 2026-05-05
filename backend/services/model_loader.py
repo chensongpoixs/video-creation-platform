@@ -1,16 +1,84 @@
 """
 模型加载器 - 负责加载和管理LLM和视频生成模型
 支持 FP16 半精度优化，显存占用减半
+按需下载：仅下载项目使用的模型权重/配置/分词器，不下载整个仓库
 """
 import torch
 import os
-from typing import Optional
+from typing import Optional, List
 from pathlib import Path
 from utils.logger import setup_logger
 from utils.memory_monitor import memory_monitor, print_memory, clear_memory
 from config import LLM_CONFIG, VIDEO_CONFIG, MEMORY_CONFIG
 
 logger = setup_logger(__name__)
+
+# ============================================================
+# 模型下载：仅下载权重/配置/分词器等必需文件，不下载整个仓库
+# ============================================================
+MODEL_FILE_PATTERNS = [
+    "*.json",           # config.json, tokenizer_config.json, model_index.json 等
+    "*.safetensors",    # 模型权重（safetensors 格式）
+    "*.bin",            # 模型权重（pytorch 格式）
+    "*.model",          # sentencepiece 模型
+    "*.py",             # modeling code（trust_remote_code 需要）
+    "tokenizer.*",      # 分词器文件
+    "vocab.*",          # 词表
+    "*.txt",            # special_tokens_map, added_tokens 等
+    "*.yaml",           # 部分模型配置
+    "*.md",             # model card（仅 model_index 相关）
+    "preprocessor_config.json",
+    "scheduler/**",     # diffusers scheduler 配置
+    "vae/**",           # diffusers VAE
+    "unet/**",          # diffusers UNet
+    "feature_extractor/**",
+    "tokenizer/**",
+    "text_encoder/**",
+    "image_encoder/**",
+]
+
+# 明确排除的非模型文件（README、示例、图片、测试等）
+MODEL_IGNORE_PATTERNS = [
+    "*.png", "*.jpg", "*.jpeg", "*.gif", "*.svg",
+    "*.ipynb", "*.cpp", "*.cu", "*.h", "*.sh",
+    "assets/**", "examples/**", "docs/**", "tests/**",
+    ".gitattributes", ".gitignore",
+    "README.md", "LICENSE*",
+]
+
+
+def _download_model_files(repo_id: str, local_dir: str, description: str = "") -> bool:
+    """下载模型必需文件到项目目录（跳过非模型文件，不下载整个仓库）
+
+    使用 huggingface_hub.snapshot_download 配合 allow_patterns/ignore_patterns，
+    仅下载模型权重、配置、分词器等必需文件，排除图片、示例、文档等。
+    """
+    try:
+        from huggingface_hub import snapshot_download
+
+        logger.info(f"开始下载 {description}...")
+        logger.info(f"  仓库: {repo_id}")
+        logger.info(f"  保存: {local_dir}")
+        logger.info(f"  镜像: {os.environ.get('HF_ENDPOINT', '(默认)')}")
+
+        snapshot_download(
+            repo_id,
+            local_dir=local_dir,
+            local_dir_use_symlinks=False,
+            allow_patterns=MODEL_FILE_PATTERNS,
+            ignore_patterns=MODEL_IGNORE_PATTERNS,
+            resume_download=True,
+        )
+
+        logger.info(f"✅ {description} 下载完成 → {local_dir}")
+        return True
+
+    except ImportError:
+        logger.error("huggingface_hub 未安装，请运行: pip install huggingface_hub")
+        return False
+    except Exception as e:
+        logger.error(f"❌ 下载失败 {repo_id}: {e}")
+        return False
 
 class LLMModelLoader:
     """LLM 模型加载器 - device 由 config.py 中的 LLM_CONFIG['device'] 控制"""
@@ -42,7 +110,11 @@ class LLMModelLoader:
                 self.use_fp16 = True
 
     def load_model(self):
-        """加载 ChatGLM3 模型 — cuda/cpu 由配置决定"""
+        """加载 ChatGLM3 模型 — cuda/cpu 由配置决定
+
+        按需下载：仅当模型本地不存在且 auto_download=True 时下载。
+        CPU + allow_cpu_inference=False 时跳过整个加载/下载（模型不会被使用）。
+        """
         if self.is_loaded:
             logger.info("LLM 模型已加载，跳过")
             return True
@@ -56,45 +128,60 @@ class LLMModelLoader:
             )
             return False
 
+        # CPU 模式且未开启 CPU 推理 → 跳过加载，不下载模型
+        if self.device == "cpu" and not LLM_CONFIG.get("allow_cpu_inference", False):
+            logger.info(
+                "⏭️  跳过 LLM 模型加载: device='cpu' 且 allow_cpu_inference=False，"
+                "将使用备用脚本生成方案（不下载模型）"
+            )
+            return False
+
         try:
             logger.info(f"开始加载 LLM 模型（设备: {self.device}）: {LLM_CONFIG['model_name']}")
-            
+
             # 显存监控
             if MEMORY_CONFIG.get("enable_monitoring", True):
                 print_memory("加载前 - ")
-            
+
             model_path = LLM_CONFIG["model_path"]
-            
-            if not os.path.exists(model_path) and LLM_CONFIG.get("auto_download", False):
-                logger.info(f"本地模型不存在，从 Hugging Face 下载（镜像: {os.environ.get('HF_ENDPOINT', 'hf-mirror.com')}）...")
-                model_path = LLM_CONFIG["model_name"]
-            elif not os.path.exists(model_path):
-                logger.error(f"模型路径不存在: {model_path}")
-                logger.info("请先下载模型或设置 auto_download=True")
-                return False
-            
+            model_name = LLM_CONFIG["model_name"]
+
+            # 本地不存在 → 自动下载到项目目录
+            if not os.path.exists(model_path):
+                if LLM_CONFIG.get("auto_download", False):
+                    if not _download_model_files(
+                        model_name, model_path,
+                        description=f"ChatGLM3-6B（LLM 剧本生成）",
+                    ):
+                        logger.error("LLM 模型下载失败，将使用备用方案")
+                        return False
+                else:
+                    logger.error(f"模型路径不存在且 auto_download=False: {model_path}")
+                    logger.info("请运行 python scripts/download_model.py --model llm 或设置 auto_download=True")
+                    return False
+
             try:
                 from transformers import AutoModel, AutoTokenizer
             except ImportError:
                 logger.error("transformers 未安装，请运行: pip install transformers")
                 return False
-            
+
             logger.info("加载 tokenizer...")
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_path,
                 trust_remote_code=True
             )
-            
+
             logger.info("加载 LLM 模型...")
             load_kwargs = {
                 "trust_remote_code": True,
             }
-            
+
             # FP16 优化
             if self.use_fp16 and self.device == "cuda":
                 logger.info("✅ 使用 FP16 半精度（显存减半）")
                 load_kwargs["torch_dtype"] = torch.float16
-            
+
             # INT8 量化（更激进）
             if LLM_CONFIG.get("use_int8", False):
                 logger.info("使用 INT8 量化")
@@ -102,10 +189,10 @@ class LLMModelLoader:
                 load_kwargs["device_map"] = "auto"
             else:
                 self.model = AutoModel.from_pretrained(model_path, **load_kwargs)
-                
+
                 if self.device == "cuda":
                     self.model = self.model.cuda()
-            
+
             # 启用内存优化
             if LLM_CONFIG.get("enable_memory_efficient", True):
                 try:
@@ -113,20 +200,20 @@ class LLMModelLoader:
                     logger.info("✅ 启用梯度检查点（内存优化）")
                 except:
                     logger.debug("梯度检查点不可用")
-            
+
             self.model.eval()
-            
+
             self.is_loaded = True
             logger.info("✅ LLM 模型加载完成")
-            
+
             # 显存监控
             if MEMORY_CONFIG.get("enable_monitoring", True):
                 print_memory("加载后 - ")
                 peak = memory_monitor.get_peak_memory()
                 logger.info(f"峰值显存: {peak:.2f} GB")
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"❌ LLM 模型加载失败: {str(e)}")
             import traceback
@@ -222,7 +309,10 @@ class VideoModelLoader:
                 self.use_fp16 = True
 
     def load_model(self):
-        """加载 Stable Diffusion Video 模型 — cuda/cpu 由配置决定"""
+        """加载 Stable Diffusion Video 模型 — cuda/cpu 由配置决定
+
+        按需下载：仅当模型本地不存在且 auto_download=True 时下载。
+        """
         if self.is_loaded:
             logger.info("视频模型已加载，跳过")
             return True
@@ -238,31 +328,38 @@ class VideoModelLoader:
 
         try:
             logger.info(f"开始加载视频模型（设备: {self.device}）: {VIDEO_CONFIG['model_name']}")
-            
+
             # 显存监控
             if MEMORY_CONFIG.get("enable_monitoring", True):
                 print_memory("加载前 - ")
-            
+
             model_path = VIDEO_CONFIG["model_path"]
-            
-            if not os.path.exists(model_path) and VIDEO_CONFIG.get("auto_download", False):
-                logger.info(f"本地模型不存在，从 Hugging Face 下载（镜像: {os.environ.get('HF_ENDPOINT', 'hf-mirror.com')}）...")
-                model_path = VIDEO_CONFIG["model_name"]
-            elif not os.path.exists(model_path):
-                logger.warning(f"模型路径不存在: {model_path}")
-                logger.info("提示：首次运行时会自动下载，或使用备用方案")
-                return False
-            
+            model_name = VIDEO_CONFIG["model_name"]
+
+            # 本地不存在 → 自动下载到项目目录
+            if not os.path.exists(model_path):
+                if VIDEO_CONFIG.get("auto_download", False):
+                    if not _download_model_files(
+                        model_name, model_path,
+                        description="Stable Video Diffusion XT（视频生成）",
+                    ):
+                        logger.error("视频模型下载失败，将使用备用方案")
+                        return False
+                else:
+                    logger.warning(f"模型路径不存在且 auto_download=False: {model_path}")
+                    logger.info("提示：首次运行时会自动下载，或使用备用方案")
+                    return False
+
             try:
                 from diffusers import StableVideoDiffusionPipeline
             except ImportError:
                 logger.error("diffusers 未安装，请运行: pip install diffusers")
                 return False
-            
+
             logger.info("加载 Stable Diffusion Video 模型...")
-            
+
             load_kwargs = {}
-            
+
             # FP16 优化
             if self.use_fp16 and self.device == "cuda":
                 logger.info("✅ 使用 FP16 半精度（显存减半）")
@@ -270,28 +367,28 @@ class VideoModelLoader:
                 load_kwargs["variant"] = "fp16"
             else:
                 load_kwargs["torch_dtype"] = torch.float32
-            
+
             self.model = StableVideoDiffusionPipeline.from_pretrained(
                 model_path,
                 **load_kwargs
             )
-            
+
             # 移动到设备
             if self.device == "cuda":
                 self.model = self.model.to(self.device)
-                
+
                 # 启用内存优化
                 if VIDEO_CONFIG.get("enable_attention_slicing", True):
                     logger.info("✅ 启用注意力切片（内存优化）")
                     self.model.enable_attention_slicing()
-                
+
                 if VIDEO_CONFIG.get("enable_vae_slicing", True):
                     try:
                         self.model.enable_vae_slicing()
                         logger.info("✅ 启用 VAE 切片（内存优化）")
                     except:
                         logger.debug("VAE 切片不可用")
-                
+
                 # 尝试启用 xFormers 加速
                 if VIDEO_CONFIG.get("enable_xformers", True):
                     try:
@@ -300,18 +397,18 @@ class VideoModelLoader:
                     except Exception as e:
                         logger.warning(f"xFormers 不可用: {str(e)}")
                         logger.info("提示：安装 xformers 可提升性能: pip install xformers")
-            
+
             self.is_loaded = True
             logger.info("✅ 视频模型加载完成")
-            
+
             # 显存监控
             if MEMORY_CONFIG.get("enable_monitoring", True):
                 print_memory("加载后 - ")
                 peak = memory_monitor.get_peak_memory()
                 logger.info(f"峰值显存: {peak:.2f} GB")
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"❌ 视频模型加载失败: {str(e)}")
             import traceback
