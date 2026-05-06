@@ -325,6 +325,11 @@ uvicorn main:app --host 0.0.0.0 --port 8010
 
 # 下载模型时也使用相同环境变量
 MODELS_DIR=/data/models python scripts/download_model.py
+
+
+# 视频生成失败: CUDA out of memory. Tried to allocate 1.32 GiB. GPU 0 has a total capacity of 31.36 GiB of which 509.06 MiB is free. Including non-PyTorch memory, this process has 30.85 GiB memory in use. Of the allocated memory 27.60 GiB is allocated by PyTorch, and 2.67 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://docs.pytorch.org/docs/stable/notes/cuda.html#optimizing-memory-usage-with-pytorch-cuda-alloc-conf)
+# 2026-05-07 07:38:04,038 - services.video_service - ERROR - 场景视频生成失败: CUDA out of memory. Tried to allocate 1.32 GiB. GPU 0 has a total capacity of 31.36 GiB of which 509.06 MiB is free. Including non-PyTorch memory, this process has 30.85 GiB memory in use. Of the allocated memory 27.60 GiB is allocated by PyTorch, and 2.67 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for 
+# 在启动脚本前设置环境变量 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True，并启用 CPU Offload 功能。
 ```
 
 ---
