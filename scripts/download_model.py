@@ -31,21 +31,32 @@ HF_MIRROR = os.getenv("HF_MIRROR", "https://hf-mirror.com")
 os.environ.setdefault("HF_ENDPOINT", HF_MIRROR)
 
 # ============================================================
-# 项目使用的两个模型（与 backend/config.py 保持一致）
+# 模型路径配置（与 backend/config.py 保持一致，环境变量优先）
+# ============================================================
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_MODELS_DIR = _PROJECT_ROOT / "backend" / "models"
+_MODELS_DIR = Path(os.getenv("MODELS_DIR", _DEFAULT_MODELS_DIR))
+
+# 单个模型路径（环境变量可覆盖）
+_DEFAULT_LLM_PATH = _MODELS_DIR / "chatglm3-6b"
+_DEFAULT_VIDEO_PATH = _MODELS_DIR / "cogvideox-2b"
+
+# ============================================================
+# 项目使用的两个模型
 # ============================================================
 PROJECT_MODELS = {
     "llm": {
         "name": "ChatGLM3-6B（LLM 剧本生成）",
         "repo_id": "THUDM/chatglm3-6b",
         "modelscope_id": "ZhipuAI/chatglm3-6b",
-        "output_dir": str(Path(__file__).resolve().parent.parent / "backend" / "models" / "chatglm3-6b"),
+        "output_dir": str(os.getenv("LLM_MODEL_PATH", _DEFAULT_LLM_PATH)),
         "loader": "transformers",  # 使用 AutoModel + AutoTokenizer
     },
     "video": {
         "name": "CogVideoX-2b（文生视频，支持中文）",
         "repo_id": "THUDM/CogVideoX-2b",
         "modelscope_id": "ZhipuAI/CogVideoX-2b",
-        "output_dir": str(Path(__file__).resolve().parent.parent / "backend" / "models" / "cogvideox-2b"),
+        "output_dir": str(os.getenv("VIDEO_MODEL_PATH", _DEFAULT_VIDEO_PATH)),
         "loader": "diffusers",  # 使用 CogVideoXPipeline
     },
 }

@@ -15,17 +15,21 @@ os.environ.setdefault("HF_ENDPOINT", HF_MIRROR)
 BASE_DIR = Path(__file__).resolve().parent
 
 # 视频输出目录
-VIDEO_OUTPUT_DIR = BASE_DIR / "videos"
-VIDEO_OUTPUT_DIR.mkdir(exist_ok=True)
+VIDEO_OUTPUT_DIR = Path(os.getenv("VIDEO_OUTPUT_DIR", BASE_DIR / "videos"))
+VIDEO_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# 模型目录
-MODELS_DIR = BASE_DIR / "models"
-MODELS_DIR.mkdir(exist_ok=True)
+# 模型目录（环境变量 MODELS_DIR 可覆盖，如 /data/models）
+MODELS_DIR = Path(os.getenv("MODELS_DIR", BASE_DIR / "models"))
+MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+# 单个模型路径（环境变量可覆盖，不设置则默认在 MODELS_DIR 下）
+_DEFAULT_LLM_PATH = MODELS_DIR / "chatglm3-6b"
+_DEFAULT_VIDEO_PATH = MODELS_DIR / "cogvideox-2b"
 
 # LLM 模型配置
 LLM_CONFIG = {
     "model_name": "THUDM/chatglm3-6b",
-    "model_path": str(MODELS_DIR / "chatglm3-6b"),
+    "model_path": str(os.getenv("LLM_MODEL_PATH", _DEFAULT_LLM_PATH)),
     "device": "cpu",           # "cuda"(GPU) 或 "cpu"，默认 cuda
     "allow_cpu_inference": False,  # CPU 下是否走 LLM 推理（6B 模型 CPU 推理 10-30min，默认跳过）
     "use_fp16": True,           # 启用 FP16 半精度，显存减半
@@ -44,7 +48,7 @@ LLM_CONFIG = {
 VIDEO_CONFIG = {
     # CogVideoX-2b: 支持中文的文生视频模型（清华大学 THUDM 出品，与 ChatGLM 同团队）
     "model_name": "THUDM/CogVideoX-2b",
-    "model_path": str(MODELS_DIR / "cogvideox-2b"),
+    "model_path": str(os.getenv("VIDEO_MODEL_PATH", _DEFAULT_VIDEO_PATH)),
     "device": "cuda",            # CogVideoX-2b 推荐 GPU，约 12GB 显存
     "use_fp16": True,            # FP16 半精度，显存减半（约 6-8GB）
     "num_inference_steps": 50,   # CogVideoX-2b 默认推理步数

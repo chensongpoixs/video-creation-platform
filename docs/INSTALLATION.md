@@ -272,7 +272,20 @@ Failed to load OpenH264 library
 
 ## 配置说明
 
-所有配置在 `backend/config.py` 中，关键项：
+所有配置在 `backend/config.py` 中，可通过环境变量覆盖：
+
+### 环境变量
+
+| 环境变量 | 说明 | 默认值 |
+|----------|------|--------|
+| `MODELS_DIR` | 模型根目录 | `backend/models/` |
+| `LLM_MODEL_PATH` | LLM 模型路径 | `$MODELS_DIR/chatglm3-6b` |
+| `VIDEO_MODEL_PATH` | 视频模型路径 | `$MODELS_DIR/cogvideox-2b` |
+| `VIDEO_OUTPUT_DIR` | 视频输出目录 | `backend/videos/` |
+| `HF_MIRROR` | HuggingFace 镜像 | `https://hf-mirror.com` |
+| `JWT_SECRET_KEY` | JWT 密钥 | （内置默认值） |
+
+### config.py 关键配置项
 
 | 配置 | 说明 | 默认值 |
 |------|------|--------|
@@ -283,6 +296,24 @@ Failed to load OpenH264 library
 | `VIDEO_CONFIG["num_frames"]` | 生成帧数 | `49` |
 | `VIDEO_CONFIG["auto_download"]` | 自动下载模型 | `True` |
 | `DATABASE_URL` | 数据库路径 | `sqlite:///./video_platform.db` |
+
+### 自定义模型路径示例
+
+```bash
+# 模型统一放在 /data/models 下
+export MODELS_DIR=/data/models
+
+# 或分别指定每个模型的路径
+export LLM_MODEL_PATH=/data/llm/chatglm3-6b
+export VIDEO_MODEL_PATH=/data/video/cogvideox-2b
+
+# 启动后端（自动读取环境变量）
+cd backend
+uvicorn main:app --host 0.0.0.0 --port 8010
+
+# 下载模型时也使用相同环境变量
+MODELS_DIR=/data/models python scripts/download_model.py
+```
 
 ---
 
