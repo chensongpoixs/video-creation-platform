@@ -99,7 +99,8 @@ cd ..
 
 ```bash
 cd backend
-uvicorn main:app --host 0.0.0.0 --port 8010
+uvicorn main:app --host 0.0.0.0 --port 6006
+
 # 等待下载完成（约 10-20 分钟，取决于网速）
 ```
 
