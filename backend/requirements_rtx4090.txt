@@ -11,7 +11,7 @@
 #pip install accelerate==1.0.1  # 或根据你的requirements.txt调整
 #pip install -r requirements.txt  # 安装其余依赖 (确保已移除torch/xformers/accelerate的版本锁定)
 
-
+# pip install protobuf==3.20.3
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 pydantic==2.5.0
@@ -31,7 +31,7 @@ flake8==6.1.0
 mypy==1.7.0
 accelerate==1.0.1
 sentencepiece==0.1.99
-protobuf>=3.20.0,<5.0.0   # sentencepiece 兼容（不能太新）
+protobuf==3.20.3   # sentencepiece 兼容（不能太新）
 tiktoken>=0.5.0           # CogVideoX tokenizer 需要
 xformers==0.0.28.post3; sys_platform != 'win32'
 PyJWT==2.8.0
