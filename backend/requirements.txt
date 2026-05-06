@@ -3,7 +3,10 @@ uvicorn[standard]==0.24.0
 pydantic==2.5.0
 sqlalchemy==2.0.23
 python-multipart==0.0.6
-torch>=2.7.0  # 2.7+ + cu128 支持 RTX 5080 (Blackwell, sm_120)
+#torch>=2.7.0  # 2.7+ + cu128 支持 RTX 5080 (Blackwell, sm_120)
+torch #==2.5.1+cu124
+#torchvision==0.20.1+cu124
+#torchaudio==2.5.1+cu124
 transformers>=4.48.0  # CogVideoX 需要 Dinov2WithRegistersConfig
 diffusers>=0.31.0    # CogVideoXPipeline
 opencv-python==4.8.1.78
@@ -19,7 +22,7 @@ accelerate==1.0.1
 sentencepiece==0.1.99
 protobuf>=3.20.0,<5.0.0   # sentencepiece 兼容（不能太新）
 tiktoken>=0.5.0           # CogVideoX tokenizer 需要
-xformers==0.0.28.post3; sys_platform != 'win32'
+#xformers==0.0.28.post3; sys_platform != 'win32'
 PyJWT==2.8.0
 bcrypt==4.0.1
 passlib[bcrypt]==1.7.4
@@ -30,3 +33,18 @@ pydub==0.25.1
 locust==2.17.0
 pytest-benchmark==4.0.0
 psutil==5.9.6
+
+
+# # 卸载旧版
+ # pip uninstall torch torchvision torchaudio xformers -y
+
+  # 安装 PyTorch 2.6+ (CUDA 12.6, 支持 RTX 5080 Blackwell)
+ # pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+
+  # 重新安装 xformers
+ # pip install xformers --index-url https://download.pytorch.org/whl/cu126
+
+ # 可选的 — 升级 diffusers（确保 CogVideoX 最新支持）：
+
+  # pip install diffusers --upgrade
+

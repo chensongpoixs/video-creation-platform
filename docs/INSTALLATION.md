@@ -47,6 +47,7 @@ source venv/bin/activate
 ```bash
 # CUDA 12.8（RTX 50 系列 / Blackwell）
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+# pip install torch torchvision torchaudio -f https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl/cu128/
 
 # CUDA 12.4（RTX 30/40 系列）
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
@@ -207,6 +208,7 @@ nvidia-smi --query-gpu=name,compute_cap --format=csv
 
 # RTX 50 系列 → CUDA 12.8
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+# pip install torch torchvision torchaudio -f https://mirrors.tuna.tsinghua.edu.cn/pytorch/whl/cu128/
 
 # RTX 30/40 系列 → CUDA 12.4
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
