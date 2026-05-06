@@ -1,38 +1,43 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-sqlalchemy==2.0.23
-python-multipart==0.0.6
-#torch>=2.7.0  # 2.7+ + cu128 支持 RTX 5080 (Blackwell, sm_120)
-torch #==2.5.1+cu124
-#torchvision==0.20.1+cu124
-#torchaudio==2.5.1+cu124
-transformers>=4.48.0  # CogVideoX 需要 Dinov2WithRegistersConfig
-diffusers>=0.31.0    # CogVideoXPipeline
-opencv-python==4.8.1.78
-moviepy==1.0.3
-pillow==10.1.0
-numpy==1.24.3
-pytest==7.4.3
-pytest-cov==4.1.0
-black==23.11.0
-flake8==6.1.0
-mypy==1.7.0
-accelerate==1.0.1
-sentencepiece==0.1.99
-protobuf>=3.20.0,<5.0.0   # sentencepiece 兼容（不能太新）
-tiktoken>=0.5.0           # CogVideoX tokenizer 需要
-#xformers==0.0.28.post3; sys_platform != 'win32'
-PyJWT==2.8.0
-bcrypt==4.0.1
-passlib[bcrypt]==1.7.4
-python-jose[cryptography]==3.3.0
-email-validator==2.1.0
-ffmpeg-python==0.2.0
-pydub==0.25.1
-locust==2.17.0
-pytest-benchmark==4.0.0
-psutil==5.9.6
+# fastapi==0.104.1
+# uvicorn[standard]==0.24.0
+# pydantic==2.5.0
+# sqlalchemy==2.0.23
+# python-multipart==0.0.6
+# #torch>=2.7.0  # 2.7+ + cu128 支持 RTX 5080 (Blackwell, sm_120)
+# torch #==2.5.1+cu124
+# #torchvision==0.20.1+cu124
+# #torchaudio==2.5.1+cu124
+# transformers>=4.48.0  # CogVideoX 需要 Dinov2WithRegistersConfig
+# diffusers>=0.31.0    # CogVideoXPipeline
+# opencv-python==4.8.1.78
+# moviepy==1.0.3
+# pillow==10.1.0
+# numpy      #==1.24.3
+# pytest==7.4.3
+# pytest-cov==4.1.0
+# black==23.11.0
+# flake8==6.1.0
+# mypy==1.7.0
+# accelerate==1.0.1
+# # win
+# # $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+# # linux
+# # set set CMAKE_POLICY_VERSION_MINIMUM=3.5
+# # pip install sentencepiece==0.1.99
+# sentencepiece==0.1.99
+# protobuf>=3.20.0,<5.0.0   # sentencepiece 兼容（不能太新）
+# tiktoken>=0.5.0           # CogVideoX tokenizer 需要
+# #xformers==0.0.28.post3; sys_platform != 'win32'
+# PyJWT==2.8.0
+# bcrypt==4.0.1
+# passlib[bcrypt]==1.7.4
+# python-jose[cryptography]==3.3.0
+# email-validator==2.1.0
+# ffmpeg-python==0.2.0
+# pydub==0.25.1
+# locust==2.17.0
+# pytest-benchmark==4.0.0
+# psutil==5.9.6
 
 
 # # 卸载旧版
@@ -48,3 +53,73 @@ psutil==5.9.6
 
   # pip install diffusers --upgrade
 
+
+# ==============================================
+# Web Framework
+# ==============================================
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+sqlalchemy==2.0.23
+python-multipart==0.0.6
+
+# ==============================================
+# PyTorch (请根据你的显卡型号手动选择并安装)
+# ==============================================
+# RTX 5080 (Blackwell, sm_120) 需要 torch>=2.7.0 + cu128
+# 建议用以下命令安装：
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+#
+# 其他显卡请取消下面一行的注释：
+# torch==2.5.1+cu124
+# torchvision==0.20.1+cu124
+# torchaudio==2.5.1+cu124
+
+# ==============================================
+# AI / CogVideoX 相关
+# ==============================================
+transformers>=4.48.0
+diffusers>=0.31.0
+accelerate==1.0.1
+sentencepiece==0.2.0       # 从 0.1.99 升级，直接支持 Windows 无需 CMake
+protobuf>=3.20.0,<5.0.0
+tiktoken>=0.5.0
+
+# ==============================================
+# 图像 / 视频处理
+# ==============================================
+opencv-python==4.8.1.78
+moviepy==1.0.3
+pillow==10.1.0
+ffmpeg-python==0.2.0
+pydub==0.25.1
+
+# ==============================================
+# 科学计算 (严格限制 NumPy 在 1.x 以保证兼容性)
+# ==============================================
+numpy<2                       # 固定大版本 <2，强烈建议 1.26.4
+
+# ==============================================
+# 代码质量 / 测试
+# ==============================================
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-benchmark==4.0.0
+black==23.11.0
+flake8==6.1.0
+mypy==1.7.0
+
+# ==============================================
+# 性能 / 负载测试
+# ==============================================
+locust==2.17.0
+psutil==5.9.6
+
+# ==============================================
+# 安全 / 认证
+# ==============================================
+PyJWT==2.8.0
+bcrypt==4.0.1
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+email-validator==2.1.0

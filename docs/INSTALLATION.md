@@ -40,6 +40,14 @@ venv\Scripts\activate
 # Linux / WSL
 python3 -m venv venv
 source venv/bin/activate
+
+
+
+
+conda create -n video python=3.12
+
+
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 ```
 
 ### 3. 安装 PyTorch（先装，指定 CUDA 版本）
@@ -140,6 +148,7 @@ cd backend
 
 # 开发模式（热重载）
 uvicorn main:app --host 0.0.0.0 --port 8010 --reload
+# uvicorn main:app --host 0.0.0.0 --port 6006 --reload
 
 # 生产模式
 uvicorn main:app --host 0.0.0.0 --port 8010

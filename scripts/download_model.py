@@ -17,7 +17,7 @@
   python scripts/download_model.py --source ms      # 从 ModelScope 下载全部
   HF_MIRROR="https://hf-mirror.com" python scripts/download_model.py
 """
-
+# pip install modelscope
 import os
 import sys
 import argparse
