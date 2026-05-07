@@ -20,6 +20,14 @@ window.__APP_CONFIG__ = {
   apiBaseURL: '/',
 
   /**
+   * 视频文件基础地址
+   * - 默认与 apiBaseURL 相同（视频由后端同一服务提供）
+   * - 如果视频托管在 CDN 或其他服务器，可单独配置
+   * - 开发环境保持 '/' 即可（Vite proxy 自动转发 /videos）
+   */
+  videoBaseURL: '/',
+
+  /**
    * 请求超时时间（毫秒）
    */
   timeout: 30000,
