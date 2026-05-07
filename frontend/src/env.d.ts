@@ -9,6 +9,7 @@ declare module '*.vue' {
 // 全局应用配置类型（public/config.js）
 interface AppConfig {
   apiBaseURL: string
+  videoBaseURL: string
   timeout: number
   backendPort: number
 }

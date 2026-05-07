@@ -60,3 +60,18 @@ api.interceptors.response.use(
 )
 
 export default api
+
+/**
+ * 解析视频 URL
+ *
+ * 后端返回的视频路径是相对路径（如 /videos/xxx.mp4），
+ * 前端需要拼接 videoBaseURL 得到完整可访问的地址。
+ *
+ * - 开发环境: videoBaseURL='/' → 直接返回相对路径（Vite proxy 转发 /videos）
+ * - 生产环境: videoBaseURL='http://192.168.1.100:8010' → 拼接到路径前面
+ */
+export function resolveVideoUrl(path: string | null): string {
+  if (!path) return ''
+  const base = (window.__APP_CONFIG__?.videoBaseURL || appConfig.apiBaseURL || '/').replace(/\/+$/, '')
+  return base === '/' ? path : `${base}${path}`
+}

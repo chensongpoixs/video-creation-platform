@@ -49,7 +49,7 @@
                 </el-tag>
                 <span v-if="video.duration" class="scene-duration">{{ video.duration }}s</span>
               </div>
-              <VideoPlayer :src="video.url" :task-id="`${task.task_id}_scene_${video.scene_number}`" />
+              <VideoPlayer :src="resolveVideoUrl(video.url)" :task-id="`${task.task_id}_scene_${video.scene_number}`" />
             </div>
           </div>
         </div>
@@ -57,7 +57,7 @@
         <!-- Final Result Video -->
         <div v-if="task.status === 'completed' && task.result" class="detail-card">
           <h2 class="section-title">最终结果（拼接 + 后处理）</h2>
-          <VideoPlayer :src="task.result" :task-id="task.task_id" />
+          <VideoPlayer :src="resolveVideoUrl(task.result)" :task-id="task.task_id" />
         </div>
 
         <!-- Processing Status -->
@@ -79,6 +79,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTasksStore } from '@/stores/tasks'
 import VideoPlayer from '@/components/video/VideoPlayer.vue'
+import { resolveVideoUrl } from '@/api/index'
 import type { TaskInfo } from '@/api/tasks'
 
 const route = useRoute()

@@ -173,6 +173,31 @@ npm run build
 - API 文档：http://localhost:8010/docs
 - 健康检查：http://localhost:8010/health
 
+### 5. 前端配置（生产部署）
+
+生产环境部署时，修改 `frontend/public/config.js` 中的后端地址：
+
+```javascript
+window.__APP_CONFIG__ = {
+  apiBaseURL: 'http://192.168.1.100:8010',   // 后端 API 地址
+  videoBaseURL: 'http://192.168.1.100:8010', // 视频文件地址（默认同 API）
+  // 如视频托管在 CDN，可单独配置:
+  // videoBaseURL: 'https://cdn.example.com',
+  timeout: 30000,
+  backendPort: 8010,
+}
+```
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `apiBaseURL` | 后端 API 基础地址 | `/` |
+| `videoBaseURL` | 视频文件基础地址 | `/`（同 apiBaseURL） |
+| `timeout` | 请求超时时间（ms） | `30000` |
+| `backendPort` | 后端端口（参考） | `8010` |
+
+- **开发环境**：保持 `/`，Vite 自动代理 `/api`、`/videos` 到后端
+- **生产环境**：修改为后端实际地址，修改后**无需重新构建**，刷新页面即生效
+
 ---
 
 ## GPU 兼容性说明
