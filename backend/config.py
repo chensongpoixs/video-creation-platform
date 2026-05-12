@@ -62,6 +62,12 @@ VIDEO_CONFIG = {
     "enable_attention_slicing": True,  # 注意力切片
     "enable_vae_slicing": True,        # VAE 切片
     "enable_xformers": False,          # CogVideoX 使用 Flash Attention，非 xFormers
+    # Transformer 量化：启动默认使用 4bit 权重量化（bitsandbytes NF4，diffusers 所称 Q4 级别）
+    # none: 不量化 | bnb_4bit: 默认，自动启用（无 CUDA/无 bitsandbytes/加载失败时由加载器回退 FP16）| gguf: 本地 .gguf 替换 transformer
+    "transformer_quantization": os.getenv("VIDEO_TRANSFORMER_QUANTIZATION", "bnb_4bit"),
+    "transformer_gguf_path": os.getenv("VIDEO_TRANSFORMER_GGUF_PATH", "").strip(),
+    # GGUF 动态反量化后的计算精度（gguf 模式）
+    "gguf_compute_dtype": os.getenv("VIDEO_GGUF_COMPUTE_DTYPE", "float16"),  # float16 | bfloat16
 }
 
 # 视频处理配置

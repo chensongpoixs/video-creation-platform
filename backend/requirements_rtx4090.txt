@@ -29,7 +29,7 @@ pytest-cov==4.1.0
 black==23.11.0
 flake8==6.1.0
 mypy==1.7.0
-accelerate==1.0.1
+accelerate>=1.2.0
 sentencepiece==0.1.99
 protobuf==3.20.3   # sentencepiece 兼容（不能太新）
 tiktoken>=0.5.0           # CogVideoX tokenizer 需要

@@ -296,6 +296,8 @@ class VideoModelLoader:
         self.device = VIDEO_CONFIG["device"]
         self.is_loaded = False
         self.use_fp16 = VIDEO_CONFIG.get("use_fp16", True)
+        # bitsandbytes 4bit 加载后不可对整管线 .to(cuda)，需 enable_model_cpu_offload
+        self._bnb4bit_pipeline = False
 
         logger.info(f"视频模型加载器初始化，配置设备: {self.device}")
         logger.info(f"FP16 模式: {'启用' if self.use_fp16 else '禁用'}")
@@ -373,22 +375,125 @@ class VideoModelLoader:
 
             logger.info("加载 CogVideoX-2b 文生视频 Pipeline...")
 
-            load_kwargs = {}
+            quant_mode = str(VIDEO_CONFIG.get("transformer_quantization", "bnb_4bit")).lower()
+            if quant_mode not in ("none", "bnb_4bit", "gguf"):
+                logger.warning("未知 transformer_quantization=%s，按 none 处理", quant_mode)
+                quant_mode = "none"
 
-            if self.use_fp16 and self.device == "cuda":
-                logger.info("✅ 使用 FP16 半精度（约 6-8GB 显存）")
-                load_kwargs["torch_dtype"] = torch.float16
+            load_kwargs: dict = {}
+            transformer_override = None
+            attempted_bnb_4bit = False
+
+            if quant_mode == "gguf":
+                gguf_path = (VIDEO_CONFIG.get("transformer_gguf_path") or "").strip()
+                if not gguf_path or not os.path.isfile(gguf_path):
+                    logger.error(
+                        "transformer_quantization=gguf 需要有效的 VIDEO_TRANSFORMER_GGUF_PATH（指向 .gguf 单文件）"
+                    )
+                    return False
+                try:
+                    from diffusers import CogVideoXTransformer3DModel, GGUFQuantizationConfig
+                except ImportError as e:
+                    logger.error("GGUF 加载需要 diffusers 版本支持 CogVideoXTransformer3DModel / GGUFQuantizationConfig: %s", e)
+                    return False
+                try:
+                    import gguf  # noqa: F401
+                except ImportError:
+                    logger.error("GGUF 模式请安装: pip install gguf")
+                    return False
+                gdtype = str(VIDEO_CONFIG.get("gguf_compute_dtype", "float16")).lower()
+                compute_dtype = torch.bfloat16 if gdtype == "bfloat16" else torch.float16
+                logger.info(
+                    "使用 GGUF 单文件加载 transformer: %s, compute_dtype=%s",
+                    gguf_path,
+                    compute_dtype,
+                )
+                transformer_override = CogVideoXTransformer3DModel.from_single_file(
+                    gguf_path,
+                    quantization_config=GGUFQuantizationConfig(compute_dtype=compute_dtype),
+                    config=model_path,
+                    subfolder="transformer",
+                    torch_dtype=compute_dtype,
+                )
+                load_kwargs["torch_dtype"] = compute_dtype
+
+            elif quant_mode == "bnb_4bit":
+                bnb_ok = self.device == "cuda"
+                if not bnb_ok:
+                    logger.info("transformer_quantization=bnb_4bit 但 device 非 cuda，启动时自动回退 FP16/FP32")
+                else:
+                    try:
+                        import bitsandbytes  # noqa: F401
+                    except ImportError:
+                        bnb_ok = False
+                        logger.warning("未安装 bitsandbytes，启动时自动回退 FP16（可 pip install bitsandbytes 启用 4bit）")
+                    if bnb_ok:
+                        try:
+                            from diffusers.quantizers import PipelineQuantizationConfig
+                        except ImportError as e:
+                            bnb_ok = False
+                            logger.warning("无法导入 PipelineQuantizationConfig，自动回退 FP16: %s", e)
+                if bnb_ok:
+                    compute_dtype = torch.float16 if self.use_fp16 else torch.float32
+                    load_kwargs["quantization_config"] = PipelineQuantizationConfig(
+                        quant_backend="bitsandbytes_4bit",
+                        quant_kwargs={
+                            "load_in_4bit": True,
+                            "bnb_4bit_quant_type": "nf4",
+                            "bnb_4bit_compute_dtype": compute_dtype,
+                        },
+                        components_to_quantize=["transformer"],
+                    )
+                    load_kwargs["torch_dtype"] = compute_dtype
+                    attempted_bnb_4bit = True
+                    logger.info("启动默认启用 transformer 4bit 权重量化（bitsandbytes NF4 / Q4 级别）")
+                else:
+                    if self.use_fp16 and self.device == "cuda":
+                        logger.info("✅ 使用 FP16 半精度（约 6-8GB 显存）")
+                        load_kwargs["torch_dtype"] = torch.float16
+                    else:
+                        load_kwargs["torch_dtype"] = torch.float32
+
             else:
-                load_kwargs["torch_dtype"] = torch.float32
+                if self.use_fp16 and self.device == "cuda":
+                    logger.info("✅ 使用 FP16 半精度（约 6-8GB 显存）")
+                    load_kwargs["torch_dtype"] = torch.float16
+                else:
+                    load_kwargs["torch_dtype"] = torch.float32
 
-            self.model = CogVideoXPipeline.from_pretrained(
-                model_path,
-                **load_kwargs
-            )
+            pipe_kw = dict(load_kwargs)
+            if transformer_override is not None:
+                pipe_kw["transformer"] = transformer_override
 
-            # 移动到 GPU 并启用优化
+            self._bnb4bit_pipeline = False
+            try:
+                self.model = CogVideoXPipeline.from_pretrained(model_path, **pipe_kw)
+                self._bnb4bit_pipeline = bool(
+                    attempted_bnb_4bit and pipe_kw.get("quantization_config") is not None
+                )
+            except Exception as e:
+                if attempted_bnb_4bit and "quantization_config" in pipe_kw:
+                    logger.warning("4bit 量化加载失败，启动时自动回退 FP16: %s", e)
+                    load_kwargs_fb: dict = {}
+                    if self.use_fp16 and self.device == "cuda":
+                        load_kwargs_fb["torch_dtype"] = torch.float16
+                    else:
+                        load_kwargs_fb["torch_dtype"] = torch.float32
+                    fb_kw = dict(load_kwargs_fb)
+                    if transformer_override is not None:
+                        fb_kw["transformer"] = transformer_override
+                    self.model = CogVideoXPipeline.from_pretrained(model_path, **fb_kw)
+                    self._bnb4bit_pipeline = False
+                else:
+                    raise
+
+            # 移动到 GPU 并启用优化（bnb 量化子模块与整管线 .to(cuda) 不兼容，见 accelerate/diffusers 限制）
             if self.device == "cuda":
-                self.model = self.model.to(self.device)
+                if self._bnb4bit_pipeline:
+                    self.model.enable_model_cpu_offload()
+                    logger.info("bitsandbytes 4bit 已启用 enable_model_cpu_offload（替代整管线 .to(cuda)）")
+                else:
+                    self.model = self.model.to(self.device)
 
                 if VIDEO_CONFIG.get("enable_vae_slicing", True):
                     try:
@@ -488,6 +593,7 @@ class VideoModelLoader:
             del self.model
             self.model = None
             self.is_loaded = False
+        self._bnb4bit_pipeline = False
 
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
